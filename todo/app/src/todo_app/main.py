@@ -27,12 +27,11 @@ def create_app() -> FastAPI:
     app = FastAPI(title="HA Todo", lifespan=lifespan)
 
     @app.middleware("http")
-    async def ingress_root_path(request, call_next):
-        # HA ingress serves the app under a dynamic path prefix and passes it
-        # in this header; setting root_path makes url_for() emit correct URLs.
-        ingress_path = request.headers.get("X-Ingress-Path")
-        if ingress_path:
-            request.scope["root_path"] = ingress_path
+    async def token_cookie(request, call_next):
+        # NOTE: do not set scope["root_path"] from X-Ingress-Path here — the
+        # ingress proxy strips the prefix from the path, and a root_path that
+        # is not a path prefix breaks Starlette's Mount/StaticFiles routing.
+        # Templates read the header directly to build prefixed URLs.
         response = await call_next(request)
         # Persist a valid ?token= as a cookie so LAN browsers authenticate once.
         token = request.query_params.get("token")

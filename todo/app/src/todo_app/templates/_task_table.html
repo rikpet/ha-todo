@@ -1,41 +1,44 @@
-{% set root = request.scope.get('root_path', '') %}
-<p class="muted">{{ open_count }} open task{{ '' if open_count == 1 else 's' }}</p>
+{% set root = request.headers.get('x-ingress-path', '') %}
+<p class="task-count">{{ open_count }} open</p>
 {% if tasks %}
-<table>
-  <tbody>
+<ul class="task-list">
   {% for task in tasks %}
-    <tr class="{{ 'task-done' if task.status == 'done' }}">
-      <td class="col-check">
-        <input type="checkbox" {{ 'checked' if task.status == 'done' }}
-               hx-post="{{ root }}/tasks/{{ task.id }}/toggle"
-               hx-include="#filters" hx-target="#task-table"
-               aria-label="Toggle task {{ task.id }}">
-      </td>
-      <td>
-        <span class="task-title">{{ task.title }}</span>
-        {% if task.priority == 'high' %}<mark class="prio-high">high</mark>{% endif %}
-        {% if task.priority == 'low' %}<small class="prio-low">low</small>{% endif %}
+  <li class="task {{ 'task-done' if task.status == 'done' }}">
+    <input type="checkbox" class="task-check" {{ 'checked' if task.status == 'done' }}
+           hx-post="{{ root }}/tasks/{{ task.id }}/toggle"
+           hx-include="#filters" hx-target="#task-table"
+           aria-label="Toggle task {{ task.id }}">
+    <div class="task-body">
+      <span class="task-title">{{ task.title }}</span>
+      <div class="task-meta">
         {% if task.due_date %}
-          <small class="due {{ 'overdue' if task.status == 'open' and task.due_date < today }}">
-            📅 {{ task.due_date }}
-          </small>
+          {% if task.status == 'open' and task.due_date < today %}
+          <span class="badge badge-overdue">{{ task.due_date }}</span>
+          {% else %}
+          <span class="badge">{{ task.due_date }}</span>
+          {% endif %}
         {% endif %}
-        {% for t in task.tags %}<small class="tag">#{{ t }}</small>{% endfor %}
-        {% if task.description %}<br><small class="muted">{{ task.description }}</small>{% endif %}
-      </td>
-      <td class="col-actions">
-        <button class="outline secondary btn-sm"
-                hx-get="{{ root }}/tasks/{{ task.id }}/edit"
-                hx-target="closest tr" hx-swap="outerHTML">✏️</button>
-        <button class="outline secondary btn-sm"
-                hx-post="{{ root }}/tasks/{{ task.id }}/delete"
-                hx-include="#filters" hx-target="#task-table"
-                hx-confirm="Delete “{{ task.title }}”?">🗑️</button>
-      </td>
-    </tr>
+        {% if task.priority == 'high' %}<span class="badge badge-high">high</span>{% endif %}
+        {% for t in task.tags %}<span class="badge">#{{ t }}</span>{% endfor %}
+      </div>
+      {% if task.description %}<div class="task-desc">{{ task.description }}</div>{% endif %}
+    </div>
+    <div class="task-actions">
+      <button class="icon-btn" title="Edit"
+              hx-get="{{ root }}/tasks/{{ task.id }}/edit"
+              hx-target="closest li" hx-swap="outerHTML">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+      </button>
+      <button class="icon-btn danger" title="Delete"
+              hx-post="{{ root }}/tasks/{{ task.id }}/delete"
+              hx-include="#filters" hx-target="#task-table"
+              hx-confirm="Delete “{{ task.title }}”?">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+      </button>
+    </div>
+  </li>
   {% endfor %}
-  </tbody>
-</table>
+</ul>
 {% else %}
-<p class="muted"><em>No tasks match. Enjoy the calm 🌊</em></p>
+<div class="empty">Nothing here. Enjoy the calm.</div>
 {% endif %}

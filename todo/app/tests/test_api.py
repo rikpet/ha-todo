@@ -98,7 +98,15 @@ def test_web_ui_flow(ingress_client):
     assert "Edited" not in c.get("/").text
 
 
-def test_ingress_path_header_sets_root_path(ingress_client):
+def test_ingress_path_header_prefixes_urls(ingress_client):
     page = ingress_client.get("/", headers={"X-Ingress-Path": "/api/hassio_ingress/abc"})
     assert '/api/hassio_ingress/abc/static/htmx.min.js' in page.text
     assert '/api/hassio_ingress/abc/tasks/new' in page.text
+
+
+def test_static_files_served_under_ingress(ingress_client):
+    # the ingress proxy strips the prefix from the path but sends the header;
+    # static must still resolve (regression: root_path broke Mount routing)
+    headers = {"X-Ingress-Path": "/api/hassio_ingress/abc"}
+    assert ingress_client.get("/static/app.css", headers=headers).status_code == 200
+    assert ingress_client.get("/static/htmx.min.js", headers=headers).status_code == 200
