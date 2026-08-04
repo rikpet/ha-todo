@@ -1,0 +1,48 @@
+main.container {
+    max-width: 860px;
+    padding-top: 1.5rem;
+}
+
+.muted { color: var(--pico-muted-color); }
+
+.task-done .task-title {
+    text-decoration: line-through;
+    color: var(--pico-muted-color);
+}
+
+.col-check { width: 2.5rem; }
+.col-actions { width: 7rem; text-align: right; white-space: nowrap; }
+
+.btn-sm {
+    padding: 0.15rem 0.5rem;
+    font-size: 0.85rem;
+    width: auto;
+    display: inline-block;
+    margin-bottom: 0;
+}
+
+.tag {
+    background: var(--pico-secondary-background);
+    color: var(--pico-secondary-inverse);
+    border-radius: 0.75rem;
+    padding: 0.05rem 0.5rem;
+    margin-left: 0.25rem;
+    font-size: 0.75rem;
+}
+
+.prio-high {
+    background: #d93526;
+    color: white;
+    border-radius: 0.25rem;
+    padding: 0.05rem 0.4rem;
+    font-size: 0.75rem;
+    margin-left: 0.25rem;
+}
+
+.prio-low { color: var(--pico-muted-color); margin-left: 0.25rem; }
+
+.due { margin-left: 0.5rem; }
+.due.overdue { color: #d93526; font-weight: bold; }
+
+form .grid input, form .grid select { margin-bottom: 0.5rem; }
+#filters { margin-top: 1rem; }

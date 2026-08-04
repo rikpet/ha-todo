@@ -1,0 +1,22 @@
+{% set root = request.scope.get('root_path', '') %}
+<tr>
+  <td colspan="3">
+    <div class="grid">
+      <input name="title" value="{{ task.title }}" required aria-label="Title">
+      <input name="due_date" type="date" value="{{ task.due_date or '' }}" aria-label="Due date">
+      <select name="priority" aria-label="Priority">
+        {% for p in ['low', 'normal', 'high'] %}
+        <option value="{{ p }}" {{ 'selected' if task.priority == p }}>{{ p }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <input name="tags" value="{{ task.tags | join(', ') }}" placeholder="tags, comma, separated"
+           aria-label="Tags">
+    <textarea name="description" rows="2" placeholder="Description"
+              aria-label="Description">{{ task.description }}</textarea>
+    <button class="btn-sm" hx-post="{{ root }}/tasks/{{ task.id }}/edit"
+            hx-include="closest tr, #filters" hx-target="#task-table">Save</button>
+    <button class="outline secondary btn-sm" hx-get="{{ root }}/tasks/table"
+            hx-include="#filters" hx-target="#task-table">Cancel</button>
+  </td>
+</tr>

@@ -1,0 +1,41 @@
+{% set root = request.scope.get('root_path', '') %}
+<p class="muted">{{ open_count }} open task{{ '' if open_count == 1 else 's' }}</p>
+{% if tasks %}
+<table>
+  <tbody>
+  {% for task in tasks %}
+    <tr class="{{ 'task-done' if task.status == 'done' }}">
+      <td class="col-check">
+        <input type="checkbox" {{ 'checked' if task.status == 'done' }}
+               hx-post="{{ root }}/tasks/{{ task.id }}/toggle"
+               hx-include="#filters" hx-target="#task-table"
+               aria-label="Toggle task {{ task.id }}">
+      </td>
+      <td>
+        <span class="task-title">{{ task.title }}</span>
+        {% if task.priority == 'high' %}<mark class="prio-high">high</mark>{% endif %}
+        {% if task.priority == 'low' %}<small class="prio-low">low</small>{% endif %}
+        {% if task.due_date %}
+          <small class="due {{ 'overdue' if task.status == 'open' and task.due_date < today }}">
+            📅 {{ task.due_date }}
+          </small>
+        {% endif %}
+        {% for t in task.tags %}<small class="tag">#{{ t }}</small>{% endfor %}
+        {% if task.description %}<br><small class="muted">{{ task.description }}</small>{% endif %}
+      </td>
+      <td class="col-actions">
+        <button class="outline secondary btn-sm"
+                hx-get="{{ root }}/tasks/{{ task.id }}/edit"
+                hx-target="closest tr" hx-swap="outerHTML">✏️</button>
+        <button class="outline secondary btn-sm"
+                hx-post="{{ root }}/tasks/{{ task.id }}/delete"
+                hx-include="#filters" hx-target="#task-table"
+                hx-confirm="Delete “{{ task.title }}”?">🗑️</button>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted"><em>No tasks match. Enjoy the calm 🌊</em></p>
+{% endif %}

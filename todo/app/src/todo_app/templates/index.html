@@ -1,0 +1,58 @@
+{% set root = request.scope.get('root_path', '') %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Todo</title>
+  <link rel="stylesheet" href="{{ root }}/static/pico.min.css">
+  <link rel="stylesheet" href="{{ root }}/static/app.css">
+  <script src="{{ root }}/static/htmx.min.js"></script>
+</head>
+<body>
+<main class="container">
+  <h2>✅ Todo</h2>
+
+  <form hx-post="{{ root }}/tasks/new" hx-target="#task-table" hx-include="#filters"
+        hx-on::after-request="if(event.detail.successful) this.reset()">
+    <fieldset role="group">
+      <input name="title" placeholder="Add a task…" required autocomplete="off">
+      <button type="submit">Add</button>
+    </fieldset>
+    <details>
+      <summary>More options</summary>
+      <div class="grid">
+        <input name="due_date" type="date" aria-label="Due date">
+        <select name="priority" aria-label="Priority">
+          <option value="low">Low</option>
+          <option value="normal" selected>Normal</option>
+          <option value="high">High</option>
+        </select>
+        <input name="tags" placeholder="tags, comma, separated" autocomplete="off">
+      </div>
+      <textarea name="description" placeholder="Description (optional)" rows="2"></textarea>
+    </details>
+  </form>
+
+  <form id="filters" hx-get="{{ root }}/tasks/table" hx-target="#task-table"
+        hx-trigger="change, input delay:300ms from:[name='search']" class="grid">
+    <select name="status" aria-label="Status filter">
+      <option value="all" {% if status == 'all' %}selected{% endif %}>All</option>
+      <option value="open" {% if status == 'open' %}selected{% endif %}>Open</option>
+      <option value="done" {% if status == 'done' %}selected{% endif %}>Done</option>
+    </select>
+    <select name="tag" aria-label="Tag filter">
+      <option value="">Any tag</option>
+      {% for t in all_tags %}
+      <option value="{{ t }}" {% if t == tag %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select>
+    <input name="search" type="search" placeholder="Search…" value="{{ search }}" autocomplete="off">
+  </form>
+
+  <div id="task-table">
+    {% include "_task_table.html" %}
+  </div>
+</main>
+</body>
+</html>
