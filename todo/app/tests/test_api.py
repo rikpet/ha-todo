@@ -91,20 +91,33 @@ def test_web_ui_flow(client):
     assert "#a" in page.text
 
     c.post("/tasks/1/toggle")
-    assert "task-done" in c.get("/").text
+    # done tasks are hidden by default; visible under the All filter
+    assert "task-done" not in c.get("/").text
+    assert "task-done" in c.get("/", params={"status": "all"}).text
 
     edit = c.get("/tasks/1/edit")
     assert 'value="From web"' in edit.text
 
     c.post("/tasks/1/edit", data={"title": "Edited", "priority": "low", "due_date": ""})
-    assert "Edited" in c.get("/").text
+    assert "Edited" in c.get("/", params={"status": "all"}).text
 
     # tag removal strips it everywhere
     c.post("/tags/a/delete")
-    assert "#a" not in c.get("/").text
+    assert "#a" not in c.get("/", params={"status": "all"}).text
 
     c.post("/tasks/1/delete")
-    assert "Edited" not in c.get("/").text
+    assert "Edited" not in c.get("/", params={"status": "all"}).text
+
+
+def test_web_hides_done_by_default(client):
+    c = client
+    c.post("/tasks/new", data={"title": "Stays open"})
+    c.post("/tasks/new", data={"title": "Gets finished"})
+    c.post("/tasks/2/toggle")
+    page = c.get("/").text
+    assert "Stays open" in page
+    assert "Gets finished" not in page
+    assert "Gets finished" in c.get("/", params={"status": "done"}).text
 
 
 def test_web_add_to_other_workspace(client):

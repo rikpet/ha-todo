@@ -57,7 +57,7 @@ def _render_table(
 def index(
     request: Request,
     workspace: str = "home",
-    status: str = "all",
+    status: str = "open",
     tag: str = "",
     search: str = "",
 ):
@@ -68,7 +68,7 @@ def index(
 def task_table(
     request: Request,
     workspace: str = "home",
-    status: str = "all",
+    status: str = "open",
     tag: str = "",
     search: str = "",
 ):
@@ -85,7 +85,7 @@ def create(
     tags: list[str] = Form([]),
     task_workspace: str = Form("home"),
     workspace: str = Form("home"),
-    status: str = Form("all"),
+    status: str = Form("open"),
     tag: str = Form(""),
     search: str = Form(""),
 ):
@@ -118,7 +118,7 @@ def toggle(
     request: Request,
     task_id: int,
     workspace: str = Form("home"),
-    status: str = Form("all"),
+    status: str = Form("open"),
     tag: str = Form(""),
     search: str = Form(""),
 ):
@@ -149,7 +149,7 @@ def edit_save(
     tags: list[str] = Form([]),
     task_workspace: str = Form("home"),
     workspace: str = Form("home"),
-    status: str = Form("all"),
+    status: str = Form("open"),
     tag: str = Form(""),
     search: str = Form(""),
 ):
@@ -176,7 +176,7 @@ def delete(
     request: Request,
     task_id: int,
     workspace: str = Form("home"),
-    status: str = Form("all"),
+    status: str = Form("open"),
     tag: str = Form(""),
     search: str = Form(""),
 ):

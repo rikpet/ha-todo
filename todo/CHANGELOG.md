@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3
+
+- The web UI now hides done tasks by default — the status filter starts on **Open** instead of **All**. Tap *Done* or *All* to see completed tasks.
+
 ## 0.3.2
 
 - The CLI now defaults new tasks to the **work** workspace (`-w home` to override); the web UI keeps *Home* as its default tab.
