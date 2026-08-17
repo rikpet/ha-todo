@@ -1,5 +1,13 @@
-def test_health(client):
-    assert client.get("/health").json() == {"status": "ok"}
+def test_health_reports_version(client):
+    from todo_app import __version__
+
+    assert client.get("/health").json() == {"status": "ok", "version": __version__}
+
+
+def test_web_ui_shows_version(client):
+    from todo_app import __version__
+
+    assert f"v{__version__}" in client.get("/").text
 
 
 def test_tag_endpoints(client):

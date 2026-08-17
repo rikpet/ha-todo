@@ -489,3 +489,11 @@ main {
 .tag-add input:focus { border-color: var(--accent); }
 
 .tag-add .btn { padding: 0.3rem 0.9rem; font-size: 0.85rem; }
+
+.app-footer {
+    margin-top: 1.5rem;
+    text-align: center;
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    opacity: 0.6;
+}

@@ -46,7 +46,9 @@ If pipx claims it is already up to date (it caches the git checkout), force a re
 pipx install --force "git+https://github.com/rikpet/ha-todo.git#subdirectory=todo/app"
 ```
 
-Check the installed version with `pipx list`.
+Check versions with `todo --version` — it prints the CLI version and the
+server's, and warns if the two have drifted apart (e.g. the add-on was updated
+but the CLI wasn't). The web UI shows its version in the page footer.
 
 **Microsoft Store Python note:** pip's git-URL installs can fail with
 `fatal: Unable to read current working directory` (the Store Python's

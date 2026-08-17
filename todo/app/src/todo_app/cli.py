@@ -15,6 +15,8 @@ from rich.console import Console
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
+from . import __version__
+
 app = typer.Typer(help="Todo CLI — talks to the ha-todo server.", no_args_is_help=True)
 console = Console()
 
@@ -188,6 +190,36 @@ def _show_task(t: dict) -> None:
 
 
 # ---------- commands ----------
+
+def _version_callback(value: bool) -> None:
+    if not value:
+        return
+    console.print(f"todo (CLI)  [bold]{__version__}[/bold]")
+    # best-effort: the server is a separate install and can drift out of sync
+    url = load_config().get("url")
+    if not url:
+        console.print("server      [dim]not configured (run todo config)[/dim]")
+        raise typer.Exit()
+    try:
+        with httpx.Client(timeout=3) as c:
+            health = c.get(f"{url.rstrip('/')}/health").json()
+        server = health.get("version", "unknown")
+        marker = "" if server == __version__ else f"  [yellow]{CROSS} version mismatch[/yellow]"
+        console.print(f"server      [bold]{server}[/bold] [dim]({url})[/dim]{marker}")
+    except (httpx.HTTPError, ValueError):
+        console.print(f"server      [dim]unreachable ({url})[/dim]")
+    raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: Optional[bool] = typer.Option(
+        None, "--version", "-V", callback=_version_callback, is_eager=True,
+        help="Show CLI and server versions, then exit.",
+    ),
+):
+    """Todo CLI - talks to the ha-todo server."""
+
 
 @app.command()
 def config(

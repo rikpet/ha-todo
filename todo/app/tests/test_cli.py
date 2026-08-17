@@ -153,6 +153,37 @@ def test_tags_add_and_rm():
     assert rm_route.called
 
 
+@respx.mock
+def test_version_flag_shows_cli_and_server():
+    from todo_app import __version__
+
+    respx.get("http://pi:8099/health").mock(
+        return_value=Response(200, json={"status": "ok", "version": __version__})
+    )
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert __version__ in result.output
+    assert "server" in result.output
+
+
+@respx.mock
+def test_version_flag_flags_mismatch():
+    respx.get("http://pi:8099/health").mock(
+        return_value=Response(200, json={"status": "ok", "version": "0.0.1"})
+    )
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert "mismatch" in result.output
+
+
+@respx.mock
+def test_version_flag_survives_unreachable_server():
+    respx.get("http://pi:8099/health").mock(side_effect=__import__("httpx").ConnectError("nope"))
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert "unreachable" in result.output
+
+
 def test_no_config(monkeypatch):
     monkeypatch.delenv("TODO_URL")
     monkeypatch.setattr("todo_app.cli.CONFIG_PATH", __import__("pathlib").Path("nonexistent.toml"))

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.6
+
+- See versions at a glance: `todo --version` prints the CLI version **and** the server's, warning when the two have drifted apart. The web UI shows its version in a small footer, and `/health` now reports it too.
+
 ## 0.3.5
 
 - Fix the workspace selector reverting to *Home* after adding a task: on the Work tab, the next task you added silently went to Home and disappeared from the list. The selector now follows the active tab, and a task posted without an explicit workspace lands in the workspace you are viewing.

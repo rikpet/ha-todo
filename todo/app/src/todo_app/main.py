@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from . import db
+from . import __version__, db
 from .api import router as api_router
 from .web import router as web_router
 
@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="HA Todo", lifespan=lifespan)
+    app = FastAPI(title="HA Todo", version=__version__, lifespan=lifespan)
 
     # NOTE: do not set scope["root_path"] from X-Ingress-Path — the ingress
     # proxy strips the prefix from the path, and a root_path that is not a
@@ -33,7 +33,7 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     def health():
-        return {"status": "ok"}
+        return {"status": "ok", "version": __version__}
 
     app.include_router(api_router)
     app.include_router(web_router)
