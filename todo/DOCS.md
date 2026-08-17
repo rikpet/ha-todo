@@ -21,8 +21,10 @@ On your laptop:
 ```bash
 pipx install "git+https://github.com/rikpet/ha-todo.git#subdirectory=todo/app"
 todo config --url http://homeassistant.local:8099
+todo tags add home errands            # tags must be configured before use
 todo add "Buy milk" --due 2026-08-10 --priority high --tag home
-todo list
+todo add "Sprint review" -w work      # workspaces: home (default) or work
+todo list                             # both workspaces; -w work to filter
 todo done 1
 ```
 

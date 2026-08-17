@@ -1,5 +1,5 @@
 name: Todo
-version: "0.2.0"
+version: "0.3.0"
 slug: todo
 description: Simple todo list with web UI, REST API and CLI access
 url: https://github.com/rikpet/ha-todo

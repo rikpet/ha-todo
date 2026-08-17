@@ -14,10 +14,39 @@
     <h1>Todo</h1>
   </header>
 
+  <form id="filters" class="filters-form" hx-get="{{ root }}/tasks/table" hx-target="#task-table"
+        hx-trigger="change, input delay:300ms from:[name='search']">
+    <div class="segmented ws-tabs">
+      {% for ws in workspaces %}
+      <label><input type="radio" name="workspace" value="{{ ws }}"
+                    {% if ws == workspace %}checked{% endif %}><span>{{ ws | capitalize }}</span></label>
+      {% endfor %}
+    </div>
+    <div class="filters">
+      <div class="segmented">
+        <label><input type="radio" name="status" value="all" {% if status == 'all' %}checked{% endif %}><span>All</span></label>
+        <label><input type="radio" name="status" value="open" {% if status == 'open' %}checked{% endif %}><span>Open</span></label>
+        <label><input type="radio" name="status" value="done" {% if status == 'done' %}checked{% endif %}><span>Done</span></label>
+      </div>
+      <select name="tag" aria-label="Tag filter">
+        <option value="">Any tag</option>
+        {% for t in all_tags %}
+        <option value="{{ t }}" {% if t == tag %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+      <input name="search" type="search" placeholder="Search…" value="{{ search }}" autocomplete="off">
+    </div>
+  </form>
+
   <form class="add-form" hx-post="{{ root }}/tasks/new" hx-target="#task-table" hx-include="#filters"
         hx-on::after-request="if(event.detail.successful) this.reset()">
     <div class="add-bar">
       <input name="title" placeholder="Add a task…" required autocomplete="off">
+      <select name="task_workspace" id="task-workspace" aria-label="Workspace for the new task">
+        {% for ws in workspaces %}
+        <option value="{{ ws }}" {% if ws == workspace %}selected{% endif %}>{{ ws | capitalize }}</option>
+        {% endfor %}
+      </select>
       <button type="submit">Add</button>
     </div>
     <details class="add-more">
@@ -29,31 +58,49 @@
           <option value="normal" selected>Normal</option>
           <option value="high">High</option>
         </select>
-        <input name="tags" placeholder="tags, comma, separated" autocomplete="off">
+        {% if all_tags %}
+        <div class="tag-picks" role="group" aria-label="Tags">
+          {% for t in all_tags %}
+          <label class="tag-pick"><input type="checkbox" name="tags" value="{{ t }}"><span>#{{ t }}</span></label>
+          {% endfor %}
+        </div>
+        {% else %}
+        <small class="hint">No tags configured yet — add some under “Manage tags” below.</small>
+        {% endif %}
         <textarea name="description" placeholder="Description (optional)" rows="2"></textarea>
       </div>
     </details>
   </form>
 
-  <form id="filters" class="filters" hx-get="{{ root }}/tasks/table" hx-target="#task-table"
-        hx-trigger="change, input delay:300ms from:[name='search']">
-    <div class="segmented">
-      <label><input type="radio" name="status" value="all" {% if status == 'all' %}checked{% endif %}><span>All</span></label>
-      <label><input type="radio" name="status" value="open" {% if status == 'open' %}checked{% endif %}><span>Open</span></label>
-      <label><input type="radio" name="status" value="done" {% if status == 'done' %}checked{% endif %}><span>Done</span></label>
-    </div>
-    <select name="tag" aria-label="Tag filter">
-      <option value="">Any tag</option>
-      {% for t in all_tags %}
-      <option value="{{ t }}" {% if t == tag %}selected{% endif %}>{{ t }}</option>
-      {% endfor %}
-    </select>
-    <input name="search" type="search" placeholder="Search…" value="{{ search }}" autocomplete="off">
-  </form>
-
   <div id="task-table">
     {% include "_task_table.html" %}
   </div>
+
+  <details class="manage-tags">
+    <summary>Manage tags</summary>
+    <div class="manage-tags-body">
+      {% for t in all_tags %}
+      <span class="badge tag-manage">#{{ t }}
+        <button class="tag-remove" title="Remove tag"
+                hx-post="{{ root }}/tags/{{ t }}/delete"
+                hx-confirm="Remove tag “{{ t }}”? It will be removed from all tasks.">&times;</button>
+      </span>
+      {% endfor %}
+      <form class="tag-add" hx-post="{{ root }}/tags/new">
+        <input name="name" placeholder="New tag…" autocomplete="off" maxlength="50">
+        <button type="submit" class="btn btn-ghost">Add tag</button>
+      </form>
+    </div>
+  </details>
 </main>
+<script>
+  // keep the add-form workspace selector in sync with the active tab
+  document.addEventListener('change', function (e) {
+    if (e.target.name === 'workspace') {
+      var sel = document.getElementById('task-workspace');
+      if (sel) sel.value = e.target.value;
+    }
+  });
+</script>
 </body>
 </html>

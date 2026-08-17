@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0
+
+- **Workspaces**: tasks now live in either *Home* or *Work*. The web UI has workspace tabs, and the add-form has its own workspace selector so you can file a task to the other workspace without switching. CLI: `-w/--workspace` on `add`, `list`, `edit`. Existing tasks land in *Home*.
+- **Curated tags**: tags must be configured before use (web: "Manage tags" section; CLI: `todo tags add/rm`). Free-text tags are gone — task forms show the configured tags as toggle chips, and the API rejects unknown tags. Removing a tag strips it from all tasks.
+
 ## 0.2.0
 
 - Removed token authentication entirely. The LAN port (8099) is now open to your local network; Ingress remains behind the Home Assistant login. The `api_token` option is gone and `todo config` only needs the server URL.

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 Priority = Literal["low", "normal", "high"]
 Status = Literal["open", "done"]
+Workspace = Literal["home", "work"]
 
 
 def _validate_iso_date(value: str | None) -> str | None:
@@ -24,6 +25,7 @@ class TaskCreate(BaseModel):
     priority: Priority = "normal"
     due_date: str | None = None
     tags: list[str] = []
+    workspace: Workspace = "home"
 
     _check_due = field_validator("due_date")(_validate_iso_date)
 
@@ -36,6 +38,7 @@ class TaskUpdate(BaseModel):
     due_date: str | None = None
     clear_due_date: bool = False
     tags: list[str] | None = None
+    workspace: Workspace | None = None
 
     _check_due = field_validator("due_date")(_validate_iso_date)
 
@@ -48,6 +51,11 @@ class Task(BaseModel):
     priority: Priority
     due_date: str | None
     tags: list[str]
+    workspace: Workspace
     created_at: str
     updated_at: str
     completed_at: str | None
+
+
+class TagCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=50)

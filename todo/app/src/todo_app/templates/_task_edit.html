@@ -8,9 +8,20 @@
       <option value="{{ p }}" {{ 'selected' if task.priority == p }}>{{ p }}</option>
       {% endfor %}
     </select>
-    <input name="tags" value="{{ task.tags | join(', ') }}" placeholder="tags, comma, separated"
-           aria-label="Tags">
+    <select name="task_workspace" aria-label="Workspace">
+      {% for ws in workspaces %}
+      <option value="{{ ws }}" {{ 'selected' if task.workspace == ws }}>{{ ws | capitalize }}</option>
+      {% endfor %}
+    </select>
   </div>
+  {% if all_tags %}
+  <div class="tag-picks" role="group" aria-label="Tags">
+    {% for t in all_tags %}
+    <label class="tag-pick"><input type="checkbox" name="tags" value="{{ t }}"
+           {{ 'checked' if t in task.tags }}><span>#{{ t }}</span></label>
+    {% endfor %}
+  </div>
+  {% endif %}
   <textarea name="description" rows="2" placeholder="Description"
             aria-label="Description">{{ task.description }}</textarea>
   <div class="edit-actions">

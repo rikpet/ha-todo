@@ -27,7 +27,16 @@ MIGRATIONS: list[str] = [
     CREATE INDEX idx_tasks_status ON tasks(status);
     CREATE INDEX idx_tasks_due ON tasks(due_date);
     """,
+    # 2: workspaces + curated tag list
+    """
+    ALTER TABLE tasks ADD COLUMN workspace TEXT NOT NULL DEFAULT 'home'
+        CHECK (workspace IN ('home', 'work'));
+    CREATE INDEX idx_tasks_workspace ON tasks(workspace);
+    CREATE TABLE allowed_tags (name TEXT PRIMARY KEY) WITHOUT ROWID;
+    """,
 ]
+
+WORKSPACES = ("home", "work")
 
 
 def default_db_path() -> str:
@@ -70,6 +79,21 @@ def _row_to_task(row: sqlite3.Row) -> dict[str, Any]:
     return task
 
 
+def _validate_tags(conn: sqlite3.Connection, tags: list[str]) -> None:
+    allowed = set(allowed_tags(conn))
+    unknown = sorted(set(tags) - allowed)
+    if unknown:
+        raise ValueError(
+            f"Unknown tag(s): {', '.join(unknown)}. "
+            f"Allowed tags: {', '.join(sorted(allowed)) or '(none configured)'}"
+        )
+
+
+def _validate_workspace(workspace: str) -> None:
+    if workspace not in WORKSPACES:
+        raise ValueError(f"Workspace must be one of: {', '.join(WORKSPACES)}")
+
+
 def create_task(
     conn: sqlite3.Connection,
     *,
@@ -78,12 +102,16 @@ def create_task(
     priority: str = "normal",
     due_date: str | None = None,
     tags: list[str] | None = None,
+    workspace: str = "home",
 ) -> dict[str, Any]:
+    _validate_workspace(workspace)
+    _validate_tags(conn, tags or [])
     now = _now()
     cur = conn.execute(
-        """INSERT INTO tasks (title, description, priority, due_date, tags, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (title, description, priority, due_date, json.dumps(tags or []), now, now),
+        """INSERT INTO tasks (title, description, priority, due_date, tags, workspace,
+                              created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (title, description, priority, due_date, json.dumps(tags or []), workspace, now, now),
     )
     conn.commit()
     return get_task(conn, cur.lastrowid)
@@ -101,6 +129,7 @@ def list_tasks(
     tag: str | None = None,
     search: str | None = None,
     due_before: str | None = None,
+    workspace: str | None = None,
     sort: str = "smart",
 ) -> list[dict[str, Any]]:
     clauses: list[str] = []
@@ -108,6 +137,9 @@ def list_tasks(
     if status:
         clauses.append("status = ?")
         params.append(status)
+    if workspace:
+        clauses.append("workspace = ?")
+        params.append(workspace)
     if search:
         clauses.append("(title LIKE ? OR description LIKE ?)")
         like = f"%{search}%"
@@ -134,8 +166,12 @@ def list_tasks(
 
 
 def update_task(conn: sqlite3.Connection, task_id: int, **fields: Any) -> dict[str, Any] | None:
-    allowed = {"title", "description", "status", "priority", "due_date", "tags"}
+    allowed = {"title", "description", "status", "priority", "due_date", "tags", "workspace"}
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    if "workspace" in updates:
+        _validate_workspace(updates["workspace"])
+    if "tags" in updates:
+        _validate_tags(conn, updates["tags"])
     # due_date is nullable: allow explicit clearing via sentinel
     if fields.get("clear_due_date"):
         updates["due_date"] = None
@@ -164,8 +200,29 @@ def delete_task(conn: sqlite3.Connection, task_id: int) -> bool:
     return cur.rowcount > 0
 
 
-def all_tags(conn: sqlite3.Connection) -> list[str]:
-    tags: set[str] = set()
-    for row in conn.execute("SELECT tags FROM tasks"):
-        tags.update(json.loads(row["tags"]))
-    return sorted(tags)
+def allowed_tags(conn: sqlite3.Connection) -> list[str]:
+    return [row["name"] for row in conn.execute("SELECT name FROM allowed_tags ORDER BY name")]
+
+
+def add_allowed_tag(conn: sqlite3.Connection, name: str) -> None:
+    name = name.strip().lstrip("#")
+    if not name:
+        raise ValueError("Tag name cannot be empty")
+    conn.execute("INSERT OR IGNORE INTO allowed_tags (name) VALUES (?)", (name,))
+    conn.commit()
+
+
+def remove_allowed_tag(conn: sqlite3.Connection, name: str) -> bool:
+    cur = conn.execute("DELETE FROM allowed_tags WHERE name = ?", (name,))
+    if cur.rowcount == 0:
+        conn.commit()
+        return False
+    # strip the tag from any task still carrying it
+    for row in conn.execute("SELECT id, tags FROM tasks WHERE tags LIKE ?", (f'%"{name}"%',)):
+        tags = [t for t in json.loads(row["tags"]) if t != name]
+        conn.execute(
+            "UPDATE tasks SET tags = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(tags), _now(), row["id"]),
+        )
+    conn.commit()
+    return True

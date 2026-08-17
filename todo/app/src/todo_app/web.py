@@ -6,7 +6,7 @@ from datetime import date
 from pathlib import Path
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from . import db
@@ -19,14 +19,18 @@ def _conn(request: Request):
     return request.app.state.db
 
 
-def _parse_tags(raw: str) -> list[str]:
-    return [t.strip() for t in raw.split(",") if t.strip()]
+def _norm_workspace(workspace: str) -> str:
+    return workspace if workspace in db.WORKSPACES else db.WORKSPACES[0]
 
 
-def _render_table(request: Request, status: str, tag: str, search: str, template: str):
+def _render_table(
+    request: Request, workspace: str, status: str, tag: str, search: str, template: str
+):
     conn = _conn(request)
+    workspace = _norm_workspace(workspace)
     tasks = db.list_tasks(
         conn,
+        workspace=workspace,
         status=status if status in ("open", "done") else None,
         tag=tag or None,
         search=search or None,
@@ -34,7 +38,9 @@ def _render_table(request: Request, status: str, tag: str, search: str, template
     context = {
         "tasks": tasks,
         "open_count": sum(1 for t in tasks if t["status"] == "open"),
-        "all_tags": db.all_tags(conn),
+        "all_tags": db.allowed_tags(conn),
+        "workspaces": db.WORKSPACES,
+        "workspace": workspace,
         "status": status,
         "tag": tag,
         "search": search,
@@ -44,13 +50,25 @@ def _render_table(request: Request, status: str, tag: str, search: str, template
 
 
 @router.get("/", response_class=HTMLResponse)
-def index(request: Request, status: str = "all", tag: str = "", search: str = ""):
-    return _render_table(request, status, tag, search, "index.html")
+def index(
+    request: Request,
+    workspace: str = "home",
+    status: str = "all",
+    tag: str = "",
+    search: str = "",
+):
+    return _render_table(request, workspace, status, tag, search, "index.html")
 
 
 @router.get("/tasks/table", response_class=HTMLResponse)
-def task_table(request: Request, status: str = "all", tag: str = "", search: str = ""):
-    return _render_table(request, status, tag, search, "_task_table.html")
+def task_table(
+    request: Request,
+    workspace: str = "home",
+    status: str = "all",
+    tag: str = "",
+    search: str = "",
+):
+    return _render_table(request, workspace, status, tag, search, "_task_table.html")
 
 
 @router.post("/tasks/new", response_class=HTMLResponse)
@@ -60,22 +78,28 @@ def create(
     description: str = Form(""),
     priority: str = Form("normal"),
     due_date: str = Form(""),
-    tags: str = Form(""),
+    tags: list[str] = Form([]),
+    task_workspace: str = Form("home"),
+    workspace: str = Form("home"),
     status: str = Form("all"),
     tag: str = Form(""),
     search: str = Form(""),
 ):
     title = title.strip()
     if title:
-        db.create_task(
-            _conn(request),
-            title=title,
-            description=description.strip(),
-            priority=priority if priority in ("low", "normal", "high") else "normal",
-            due_date=due_date or None,
-            tags=_parse_tags(tags),
-        )
-    return _render_table(request, status, tag, search, "_task_table.html")
+        try:
+            db.create_task(
+                _conn(request),
+                title=title,
+                description=description.strip(),
+                priority=priority if priority in ("low", "normal", "high") else "normal",
+                due_date=due_date or None,
+                tags=tags,
+                workspace=_norm_workspace(task_workspace),
+            )
+        except ValueError:
+            pass  # stale tag checkbox after tag removal — just re-render
+    return _render_table(request, workspace, status, tag, search, "_task_table.html")
 
 
 def _task_or_404(request: Request, task_id: int) -> dict:
@@ -89,6 +113,7 @@ def _task_or_404(request: Request, task_id: int) -> dict:
 def toggle(
     request: Request,
     task_id: int,
+    workspace: str = Form("home"),
     status: str = Form("all"),
     tag: str = Form(""),
     search: str = Form(""),
@@ -96,13 +121,17 @@ def toggle(
     task = _task_or_404(request, task_id)
     new_status = "open" if task["status"] == "done" else "done"
     db.update_task(_conn(request), task_id, status=new_status)
-    return _render_table(request, status, tag, search, "_task_table.html")
+    return _render_table(request, workspace, status, tag, search, "_task_table.html")
 
 
 @router.get("/tasks/{task_id}/edit", response_class=HTMLResponse)
 def edit_form(request: Request, task_id: int):
     task = _task_or_404(request, task_id)
-    return templates.TemplateResponse(request, "_task_edit.html", {"task": task})
+    return templates.TemplateResponse(
+        request,
+        "_task_edit.html",
+        {"task": task, "all_tags": db.allowed_tags(_conn(request)), "workspaces": db.WORKSPACES},
+    )
 
 
 @router.post("/tasks/{task_id}/edit", response_class=HTMLResponse)
@@ -113,32 +142,55 @@ def edit_save(
     description: str = Form(""),
     priority: str = Form("normal"),
     due_date: str = Form(""),
-    tags: str = Form(""),
+    tags: list[str] = Form([]),
+    task_workspace: str = Form("home"),
+    workspace: str = Form("home"),
     status: str = Form("all"),
     tag: str = Form(""),
     search: str = Form(""),
 ):
     _task_or_404(request, task_id)
-    db.update_task(
-        _conn(request),
-        task_id,
-        title=title.strip() or None,
-        description=description.strip(),
-        priority=priority if priority in ("low", "normal", "high") else "normal",
-        due_date=due_date or None,
-        clear_due_date=not due_date,
-        tags=_parse_tags(tags),
-    )
-    return _render_table(request, status, tag, search, "_task_table.html")
+    try:
+        db.update_task(
+            _conn(request),
+            task_id,
+            title=title.strip() or None,
+            description=description.strip(),
+            priority=priority if priority in ("low", "normal", "high") else "normal",
+            due_date=due_date or None,
+            clear_due_date=not due_date,
+            tags=tags,
+            workspace=_norm_workspace(task_workspace),
+        )
+    except ValueError:
+        pass
+    return _render_table(request, workspace, status, tag, search, "_task_table.html")
 
 
 @router.post("/tasks/{task_id}/delete", response_class=HTMLResponse)
 def delete(
     request: Request,
     task_id: int,
+    workspace: str = Form("home"),
     status: str = Form("all"),
     tag: str = Form(""),
     search: str = Form(""),
 ):
     db.delete_task(_conn(request), task_id)
-    return _render_table(request, status, tag, search, "_task_table.html")
+    return _render_table(request, workspace, status, tag, search, "_task_table.html")
+
+
+# ---------- tag management (responds with HX-Refresh: tag lists appear in
+# several places on the page, a full reload is the simplest correct update) ----------
+
+@router.post("/tags/new")
+def tag_new(request: Request, name: str = Form("")):
+    if name.strip():
+        db.add_allowed_tag(_conn(request), name)
+    return Response(status_code=204, headers={"HX-Refresh": "true"})
+
+
+@router.post("/tags/{name}/delete")
+def tag_delete(request: Request, name: str):
+    db.remove_allowed_tag(_conn(request), name)
+    return Response(status_code=204, headers={"HX-Refresh": "true"})

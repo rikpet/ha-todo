@@ -1,13 +1,44 @@
+import pytest
+
 from todo_app import db
 
 
+def _allow(conn, *names):
+    for name in names:
+        db.add_allowed_tag(conn, name)
+
+
 def test_create_and_get(conn):
+    _allow(conn, "home")
     task = db.create_task(conn, title="Buy milk", tags=["home"], due_date="2026-08-10")
     assert task["id"] == 1
     assert task["status"] == "open"
     assert task["tags"] == ["home"]
+    assert task["workspace"] == "home"
     assert db.get_task(conn, 1)["title"] == "Buy milk"
     assert db.get_task(conn, 999) is None
+
+
+def test_unknown_tag_rejected(conn):
+    with pytest.raises(ValueError, match="Unknown tag"):
+        db.create_task(conn, title="A", tags=["nope"])
+    _allow(conn, "ok")
+    task = db.create_task(conn, title="A", tags=["ok"])
+    with pytest.raises(ValueError, match="Unknown tag"):
+        db.update_task(conn, task["id"], tags=["ok", "nope"])
+
+
+def test_workspaces(conn):
+    db.create_task(conn, title="Home thing")
+    db.create_task(conn, title="Work thing", workspace="work")
+    assert [t["title"] for t in db.list_tasks(conn, workspace="work")] == ["Work thing"]
+    assert [t["title"] for t in db.list_tasks(conn, workspace="home")] == ["Home thing"]
+    with pytest.raises(ValueError, match="Workspace"):
+        db.create_task(conn, title="X", workspace="garage")
+
+    moved = db.update_task(conn, 1, workspace="work")
+    assert moved["workspace"] == "work"
+    assert len(db.list_tasks(conn, workspace="work")) == 2
 
 
 def test_update_and_complete(conn):
@@ -32,6 +63,7 @@ def test_clear_due_date(conn):
 
 
 def test_filters(conn):
+    _allow(conn, "home", "work")
     db.create_task(conn, title="Fix bike", tags=["home"], due_date="2026-01-01")
     db.create_task(conn, title="Write report", tags=["work"], priority="high")
     done_id = db.create_task(conn, title="Old thing")["id"]
@@ -52,10 +84,22 @@ def test_delete(conn):
     assert db.delete_task(conn, task["id"]) is False
 
 
-def test_all_tags(conn):
-    db.create_task(conn, title="A", tags=["b", "a"])
-    db.create_task(conn, title="B", tags=["b", "c"])
-    assert db.all_tags(conn) == ["a", "b", "c"]
+def test_allowed_tags_crud(conn):
+    _allow(conn, "b", "a", "  #c  ")
+    assert db.allowed_tags(conn) == ["a", "b", "c"]
+    db.add_allowed_tag(conn, "a")  # idempotent
+    assert db.allowed_tags(conn) == ["a", "b", "c"]
+    with pytest.raises(ValueError):
+        db.add_allowed_tag(conn, "   ")
+
+
+def test_remove_tag_strips_from_tasks(conn):
+    _allow(conn, "keep", "drop")
+    task = db.create_task(conn, title="A", tags=["keep", "drop"])
+    assert db.remove_allowed_tag(conn, "drop") is True
+    assert db.remove_allowed_tag(conn, "drop") is False
+    assert db.get_task(conn, task["id"])["tags"] == ["keep"]
+    assert db.allowed_tags(conn) == ["keep"]
 
 
 def test_migration_is_idempotent(conn):
@@ -63,3 +107,27 @@ def test_migration_is_idempotent(conn):
     assert conn.execute("SELECT version FROM schema_version").fetchone()["version"] == len(
         db.MIGRATIONS
     )
+
+
+def test_migration_from_v1(tmp_path):
+    # simulate a database created before workspaces/allowed_tags existed
+    import sqlite3
+
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.row_factory = sqlite3.Row
+    old.executescript(db.MIGRATIONS[0])
+    old.execute(
+        "INSERT INTO tasks (title, created_at, updated_at) VALUES ('legacy', 't', 't')"
+    )
+    old.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)")
+    old.execute("INSERT INTO schema_version (version) VALUES (1)")
+    old.commit()
+    old.close()
+
+    conn = db.connect(path)
+    task = db.get_task(conn, 1)
+    assert task["title"] == "legacy"
+    assert task["workspace"] == "home"
+    assert db.allowed_tags(conn) == []
+    conn.close()
