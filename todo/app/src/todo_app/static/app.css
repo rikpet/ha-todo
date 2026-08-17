@@ -490,6 +490,72 @@ main {
 
 .tag-add .btn { padding: 0.3rem 0.9rem; font-size: 0.85rem; }
 
+/* ---------- recurring rules ---------- */
+
+.recurring-body { margin-top: 0.6rem; }
+
+.recur-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 0.35rem;
+}
+
+.recur-paused { opacity: 0.55; }
+
+.recur-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.recur-title { font-size: 0.9rem; overflow-wrap: anywhere; }
+.recur-when { color: var(--text-dim); font-size: 0.75rem; }
+.recur-actions { display: flex; gap: 0.15rem; flex-shrink: 0; }
+.recur-actions .icon-btn { font-size: 0.85rem; line-height: 1; min-width: 1.6rem; }
+
+.recur-add {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-top: 0.6rem;
+}
+
+.recur-add-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.recur-add input,
+.recur-add select {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.55rem;
+    outline: none;
+}
+
+.recur-add input:focus, .recur-add select:focus { border-color: var(--accent); }
+.recur-add > input[name="title"] { width: 100%; }
+.recur-add input[type="number"] { width: 4rem; }
+
+.recur-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+}
+
+/* show only the field that matches the chosen frequency */
+.recur-add .only-weekly, .recur-add .only-monthly { display: none; }
+.recur-add[data-freq="weekly"] .only-weekly { display: inline-block; }
+.recur-add[data-freq="monthly"] .only-monthly { display: inline-flex; }
+
 .app-footer {
     margin-top: 1.5rem;
     text-align: center;

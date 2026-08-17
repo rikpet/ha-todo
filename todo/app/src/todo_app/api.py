@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from . import db
-from .models import Task, TagCreate, TaskCreate, TaskUpdate
+from .models import Recurring, RecurringCreate, TagCreate, Task, TaskCreate, TaskUpdate
 
 router = APIRouter(prefix="/api/v1")
 
@@ -109,3 +109,55 @@ def remove_tag(request: Request, name: str):
 @router.get("/workspaces", response_model=list[str])
 def list_workspaces():
     return list(db.WORKSPACES)
+
+
+# ---------- recurring rules ----------
+
+
+@router.get("/recurring", response_model=list[Recurring])
+def list_recurring(request: Request, workspace: str | None = None):
+    return db.list_recurring(get_conn(request), workspace=workspace)
+
+
+@router.post("/recurring", response_model=Recurring, status_code=201)
+def create_recurring(request: Request, payload: RecurringCreate):
+    try:
+        return db.create_recurring(get_conn(request), **payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.get("/recurring/{rule_id}", response_model=Recurring)
+def get_recurring(request: Request, rule_id: int):
+    rule = db.get_recurring(get_conn(request), rule_id)
+    if rule is None:
+        raise HTTPException(status_code=404, detail=f"Recurring rule {rule_id} not found")
+    return rule
+
+
+@router.post("/recurring/{rule_id}/pause", response_model=Recurring)
+def pause_recurring(request: Request, rule_id: int):
+    rule = db.set_recurring_active(get_conn(request), rule_id, False)
+    if rule is None:
+        raise HTTPException(status_code=404, detail=f"Recurring rule {rule_id} not found")
+    return rule
+
+
+@router.post("/recurring/{rule_id}/resume", response_model=Recurring)
+def resume_recurring(request: Request, rule_id: int):
+    rule = db.set_recurring_active(get_conn(request), rule_id, True)
+    if rule is None:
+        raise HTTPException(status_code=404, detail=f"Recurring rule {rule_id} not found")
+    return rule
+
+
+@router.delete("/recurring/{rule_id}", status_code=204)
+def delete_recurring(request: Request, rule_id: int):
+    if not db.delete_recurring(get_conn(request), rule_id):
+        raise HTTPException(status_code=404, detail=f"Recurring rule {rule_id} not found")
+
+
+@router.post("/recurring/run", response_model=list[Task])
+def run_recurring_now(request: Request):
+    """Materialise any due recurring tasks immediately (the scheduler also does this hourly)."""
+    return db.spawn_due_tasks(get_conn(request))

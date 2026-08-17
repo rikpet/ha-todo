@@ -455,5 +455,162 @@ def tags_rm(names: list[str] = typer.Argument(..., metavar="NAME...")):
         console.print(f"[green]{CHECK}[/green] Tag #{name} removed")
 
 
+# ---------- recurring rules ----------
+
+WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+FREQUENCIES = ["daily", "weekly", "monthly"]
+
+recur_app = typer.Typer(help="Manage recurring tasks.", invoke_without_command=True)
+app.add_typer(recur_app, name="recur")
+
+
+def _describe(rule: dict) -> str:
+    n = rule["interval_n"]
+    if rule["freq"] == "daily":
+        return "every day" if n == 1 else f"every {n} days"
+    if rule["freq"] == "weekly":
+        every = "every week" if n == 1 else f"every {n} weeks"
+        return f"{every} on {WEEKDAYS[rule['weekday']].capitalize()}"
+    every = "every month" if n == 1 else f"every {n} months"
+    return f"{every} on day {rule['monthday']}"
+
+
+@recur_app.callback()
+def recur_default(ctx: typer.Context):
+    """List recurring rules when no subcommand is given."""
+    if ctx.invoked_subcommand is not None:
+        return
+    rules = request("GET", "/recurring").json()
+    if not rules:
+        console.print('[dim]No recurring tasks. Add one with: todo recur add "Take out bins"[/dim]')
+        return
+    table = Table(header_style="bold")
+    table.add_column("ID", justify="right", style="cyan")
+    table.add_column("WS")
+    table.add_column("Title")
+    table.add_column("Repeats")
+    table.add_column("Next")
+    for r in rules:
+        paused = not r["active"]
+        table.add_row(
+            str(r["id"]),
+            r["workspace"],
+            f"[dim]{r['title']}[/dim]" if paused else r["title"],
+            _describe(r),
+            "[dim]paused[/dim]" if paused else r["next_run"],
+        )
+    console.print(table)
+
+
+@recur_app.command("add")
+def recur_add(
+    title: Optional[str] = typer.Argument(None, help="Task title"),
+    freq: Optional[str] = typer.Option(None, "--freq", "-f", help="daily, weekly or monthly"),
+    every: Optional[int] = typer.Option(None, "--every", "-n", help="Repeat every N periods"),
+    weekday: Optional[str] = typer.Option(None, "--on", help="Weekday for weekly rules"),
+    monthday: Optional[int] = typer.Option(None, "--day", help="Day of month for monthly rules"),
+    priority: Optional[str] = typer.Option(None, "--priority", "-p"),
+    tag: list[str] = typer.Option([], "--tag", "-t"),
+    workspace: Optional[str] = typer.Option(None, "--workspace", "-w"),
+):
+    """Add a recurring task. With no arguments, prompts for everything."""
+    prompted = title is None
+    if title is None:
+        if not _interactive():
+            _fail('Missing title. Usage: todo recur add "Take out bins" -f weekly --on monday')
+        title = Prompt.ask("Title")
+        if not title.strip():
+            _fail("Title cannot be empty.")
+    if freq is None:
+        freq = Prompt.ask("Repeats", choices=FREQUENCIES, default="weekly") if prompted else "weekly"
+    if freq not in FREQUENCIES:
+        _fail(f"Frequency must be one of: {', '.join(FREQUENCIES)}")
+    if every is None:
+        unit = {"daily": "days", "weekly": "weeks", "monthly": "months"}[freq]
+        every = int(Prompt.ask(f"Every how many {unit}?", default="1")) if prompted else 1
+    if freq == "weekly":
+        if weekday is None:
+            weekday = Prompt.ask("On which day", choices=WEEKDAYS, default="monday") if prompted \
+                else "monday"
+        if weekday.lower() not in WEEKDAYS:
+            _fail(f"Weekday must be one of: {', '.join(WEEKDAYS)}")
+        weekday_index = WEEKDAYS.index(weekday.lower())
+    else:
+        weekday_index = None
+    if freq == "monthly" and monthday is None:
+        monthday = int(Prompt.ask("On which day of the month", default="1")) if prompted else 1
+    if prompted and workspace is None:
+        workspace = Prompt.ask("Workspace", choices=WORKSPACES, default=DEFAULT_WORKSPACE)
+    if workspace is not None and workspace not in WORKSPACES:
+        _fail(f"Workspace must be one of: {', '.join(WORKSPACES)}")
+    tags = [t for raw in tag for t in _parse_tags(raw)]
+    if prompted and not tags:
+        tags = _prompt_tags()
+    else:
+        _check_tags(tags)
+
+    payload = {
+        "title": title.strip(),
+        "freq": freq,
+        "interval_n": max(1, every),
+        "weekday": weekday_index,
+        "monthday": monthday if freq == "monthly" else None,
+        "priority": priority or "normal",
+        "tags": tags,
+        "workspace": workspace or DEFAULT_WORKSPACE,
+    }
+    rule = request("POST", "/recurring", json=payload).json()
+    console.print(
+        f"[green]{CHECK}[/green] Repeating [cyan]#{rule['id']}[/cyan] {rule['title']} "
+        f"[dim]({_describe(rule)}, next {rule['next_run']}, {rule['workspace']})[/dim]"
+    )
+    # materialise straight away if it is already due
+    for task in request("POST", "/recurring/run").json():
+        console.print(f"[green]{CHECK}[/green] Created task [cyan]#{task['id']}[/cyan] {task['title']}")
+
+
+@recur_app.command("pause")
+def recur_pause(rule_id: int = typer.Argument(..., metavar="ID")):
+    """Stop a rule from creating new tasks."""
+    rule = request("POST", f"/recurring/{rule_id}/pause").json()
+    console.print(f"[green]{CHECK}[/green] Paused [cyan]#{rule['id']}[/cyan] {rule['title']}")
+
+
+@recur_app.command("resume")
+def recur_resume(rule_id: int = typer.Argument(..., metavar="ID")):
+    """Resume a paused rule."""
+    rule = request("POST", f"/recurring/{rule_id}/resume").json()
+    console.print(
+        f"[green]{CHECK}[/green] Resumed [cyan]#{rule['id']}[/cyan] {rule['title']} "
+        f"[dim](next {rule['next_run']})[/dim]"
+    )
+
+
+@recur_app.command("rm")
+def recur_rm(
+    rule_id: int = typer.Argument(..., metavar="ID"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
+):
+    """Delete a recurring rule (already-created tasks are kept)."""
+    rule = request("GET", f"/recurring/{rule_id}").json()
+    if not yes:
+        if not _interactive():
+            _fail("Refusing to delete without --yes in a non-interactive shell.")
+        if not Confirm.ask(f"Stop repeating [cyan]#{rule['id']}[/cyan] “{rule['title']}”?"):
+            return
+    request("DELETE", f"/recurring/{rule_id}")
+    console.print(f"[green]{CHECK}[/green] Removed recurring rule [cyan]#{rule_id}[/cyan]")
+
+
+@recur_app.command("run")
+def recur_run():
+    """Create any recurring tasks that are due right now."""
+    created = request("POST", "/recurring/run").json()
+    if not created:
+        console.print("[dim]Nothing due.[/dim]")
+    for task in created:
+        console.print(f"[green]{CHECK}[/green] Created [cyan]#{task['id']}[/cyan] {task['title']}")
+
+
 if __name__ == "__main__":
     app()

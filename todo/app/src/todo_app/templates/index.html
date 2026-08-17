@@ -102,6 +102,61 @@
     </div>
   </details>
 
+  <details class="manage-tags">
+    <summary>Recurring tasks{% if recurring %} ({{ recurring | length }}){% endif %}</summary>
+    <div class="recurring-body">
+      {% for rule in recurring %}
+      <div class="recur-row {{ '' if rule.active else 'recur-paused' }}">
+        <div class="recur-info">
+          <span class="recur-title">{{ rule.title }}</span>
+          <small class="recur-when">{{ describe(rule) }}{% if rule.active %} · next {{ rule.next_run }}{% else %} · paused{% endif %}</small>
+        </div>
+        <div class="recur-actions">
+          <button class="icon-btn" title="{{ 'Pause' if rule.active else 'Resume' }}"
+                  hx-post="{{ root }}/recurring/{{ rule.id }}/toggle">
+            {{ '⏸' if rule.active else '▶' }}
+          </button>
+          <button class="icon-btn danger" title="Delete"
+                  hx-post="{{ root }}/recurring/{{ rule.id }}/delete"
+                  hx-confirm="Stop repeating “{{ rule.title }}”? Existing tasks are kept.">&times;</button>
+        </div>
+      </div>
+      {% else %}
+      <small class="hint">Nothing repeats yet. Add a rule below — tasks appear automatically.</small>
+      {% endfor %}
+
+      <form class="recur-add" data-freq="weekly" hx-post="{{ root }}/recurring/new"
+            hx-include="#filters">
+        <input name="title" placeholder="Repeating task…" autocomplete="off" required>
+        <div class="recur-add-row">
+          <select name="freq" aria-label="How often"
+                  onchange="this.closest('form').dataset.freq = this.value">
+            <option value="daily">Daily</option>
+            <option value="weekly" selected>Weekly</option>
+            <option value="monthly">Monthly</option>
+          </select>
+          <label class="recur-inline">every
+            <input name="interval_n" type="number" min="1" max="365" value="1" aria-label="Interval">
+          </label>
+          <select name="weekday" aria-label="Weekday" class="only-weekly">
+            {% for i in range(7) %}
+            <option value="{{ i }}">{{ weekday_names[i] }}</option>
+            {% endfor %}
+          </select>
+          <label class="recur-inline only-monthly">day
+            <input name="monthday" type="number" min="1" max="31" value="1" aria-label="Day of month">
+          </label>
+          <select name="task_workspace" aria-label="Workspace">
+            {% for ws in workspaces %}
+            <option value="{{ ws }}" {% if ws == workspace %}selected{% endif %}>{{ ws | capitalize }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-ghost">Add rule</button>
+        </div>
+      </form>
+    </div>
+  </details>
+
   <footer class="app-footer">v{{ app_version }}</footer>
 </main>
 <script>

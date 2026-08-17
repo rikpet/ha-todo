@@ -52,6 +52,7 @@ class Task(BaseModel):
     due_date: str | None
     tags: list[str]
     workspace: Workspace
+    recurring_id: int | None = None
     created_at: str
     updated_at: str
     completed_at: str | None
@@ -59,3 +60,41 @@ class Task(BaseModel):
 
 class TagCreate(BaseModel):
     name: str = Field(min_length=1, max_length=50)
+
+
+Frequency = Literal["daily", "weekly", "monthly"]
+
+
+class RecurringCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=500)
+    freq: Frequency
+    description: str = ""
+    priority: Priority = "normal"
+    tags: list[str] = []
+    workspace: Workspace = "home"
+    interval_n: int = Field(default=1, ge=1, le=365)
+    weekday: int | None = Field(default=None, ge=0, le=6)
+    monthday: int | None = Field(default=None, ge=1, le=31)
+    due_offset_days: int = Field(default=0, ge=0, le=365)
+    start_date: str | None = None
+
+    _check_start = field_validator("start_date")(_validate_iso_date)
+
+
+class Recurring(BaseModel):
+    id: int
+    title: str
+    description: str
+    priority: Priority
+    tags: list[str]
+    workspace: Workspace
+    freq: Frequency
+    interval_n: int
+    weekday: int | None
+    monthday: int | None
+    due_offset_days: int
+    active: bool
+    next_run: str
+    last_spawned_on: str | None
+    created_at: str
+    updated_at: str

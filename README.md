@@ -6,6 +6,7 @@ Todo app for Home Assistant on a Raspberry Pi 5 (or any HA OS box):
 - **Web UI**: server-rendered HTMX app, embedded in the HA sidebar via Ingress
 - **CLI**: `todo` command for your laptop, talks to the same API over LAN
 - **REST API**: `/api/v1` (OpenAPI docs at `/docs`)
+- **Recurring tasks**: daily/weekly/monthly rules that create tasks automatically
 
 No authentication on the LAN port — the app trusts your home network. Ingress access goes through your normal HA login. If you don't want LAN access, remove the port mapping in the add-on's network settings (the CLI needs it, though).
 

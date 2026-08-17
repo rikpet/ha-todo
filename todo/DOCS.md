@@ -18,6 +18,30 @@ The web UI installs as an app-like shortcut (standalone, no browser chrome):
 
 Works the same on Android (Chrome → menu → *Add to home screen*).
 
+## Recurring tasks
+
+Open **Recurring tasks** at the bottom of the web UI to add a rule — daily,
+weekly on a given weekday, or monthly on a given day, repeating every N periods.
+The add-on creates the task automatically on schedule (checked at startup and
+every 15 minutes), so nothing depends on you having the app open.
+
+Two behaviours worth knowing:
+
+- If the previous task from a rule is **still open**, no new copy is created — no pile-ups.
+- If the add-on was **offline** over several due dates, you get **one** task, not a backlog.
+
+Deleting a rule keeps the tasks it already created. Pausing stops new ones without losing the rule.
+
+From the CLI:
+
+```bash
+todo recur add "Ta ut soporna" -f weekly --on monday -w home
+todo recur add "Månadsrapport" -f monthly --day 1
+todo recur add "Vattna blommorna" -f daily -n 3      # every 3 days
+todo recur                                           # list rules
+todo recur pause 2 / todo recur resume 2 / todo recur rm 2
+```
+
 ## Options
 
 | Option | Description |

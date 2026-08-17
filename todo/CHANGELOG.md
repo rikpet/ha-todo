@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- **Recurring tasks.** Define rules that create tasks automatically — daily, weekly on a chosen weekday, or monthly on a chosen day, each with an interval ("every 2 weeks"). Manage them in the web UI's *Recurring tasks* section or with `todo recur add/pause/resume/rm`.
+- A built-in scheduler checks every 15 minutes and at startup, so tasks appear on time and missed runs are caught up after a reboot. Missed days collapse into a single task instead of a pile, and a rule won't stack a new task while the previous one is still open.
+
 ## 0.3.6
 
 - See versions at a glance: `todo --version` prints the CLI version **and** the server's, warning when the two have drifted apart. The web UI shows its version in a small footer, and `/health` now reports it too.

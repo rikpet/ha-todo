@@ -171,6 +171,62 @@ def test_static_links_are_cache_busted(client):
     assert f"/static/htmx.min.js?v={__version__}" in page.text
 
 
+def test_recurring_api(client):
+    c = client
+    assert c.get("/api/v1/recurring").json() == []
+
+    created = c.post(
+        "/api/v1/recurring",
+        json={"title": "Take out bins", "freq": "weekly", "weekday": 0, "workspace": "home"},
+    )
+    assert created.status_code == 201
+    rule = created.json()
+    assert rule["active"] is True
+
+    assert c.post("/api/v1/recurring/{}/pause".format(rule["id"])).json()["active"] is False
+    assert c.post("/api/v1/recurring/{}/resume".format(rule["id"])).json()["active"] is True
+    assert c.get(f"/api/v1/recurring/{rule['id']}").json()["title"] == "Take out bins"
+    assert c.get("/api/v1/recurring/999").status_code == 404
+
+    # bad rules are rejected
+    assert c.post("/api/v1/recurring", json={"title": "x", "freq": "weekly"}).status_code == 422
+    assert c.post("/api/v1/recurring", json={"title": "x", "freq": "hourly"}).status_code == 422
+
+    assert c.delete(f"/api/v1/recurring/{rule['id']}").status_code == 204
+    assert c.delete(f"/api/v1/recurring/{rule['id']}").status_code == 404
+
+
+def test_recurring_run_endpoint_creates_tasks(client):
+    c = client
+    c.post("/api/v1/recurring", json={"title": "Daily thing", "freq": "daily"})
+    created = c.post("/api/v1/recurring/run").json()
+    assert [t["title"] for t in created] == ["Daily thing"]
+    assert c.post("/api/v1/recurring/run").json() == []  # idempotent
+    assert "Daily thing" in c.get("/").text
+
+
+def test_recurring_web_flow(client):
+    c = client
+    assert "Nothing repeats yet" in c.get("/").text
+
+    r = c.post("/recurring/new", data={"title": "Weekly review", "freq": "weekly",
+                                       "weekday": "4", "interval_n": "1",
+                                       "task_workspace": "work", "workspace": "work"})
+    assert r.headers.get("HX-Refresh") == "true"
+    page = c.get("/", params={"workspace": "work"}).text
+    assert "Weekly review" in page
+    assert "every week on Friday" in page
+
+    rule_id = c.get("/api/v1/recurring").json()[0]["id"]
+    c.post(f"/recurring/{rule_id}/toggle")
+    assert c.get("/api/v1/recurring").json()[0]["active"] is False
+    c.post(f"/recurring/{rule_id}/toggle")
+    assert c.get("/api/v1/recurring").json()[0]["active"] is True
+
+    c.post(f"/recurring/{rule_id}/delete")
+    assert c.get("/api/v1/recurring").json() == []
+
+
 def test_ingress_path_header_prefixes_urls(client):
     page = client.get("/", headers={"X-Ingress-Path": "/api/hassio_ingress/abc"})
     assert '/api/hassio_ingress/abc/static/htmx.min.js' in page.text

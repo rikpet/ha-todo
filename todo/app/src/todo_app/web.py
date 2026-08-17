@@ -49,6 +49,9 @@ def _render_table(
         "tag": tag,
         "search": search,
         "today": date.today().isoformat(),
+        "recurring": db.list_recurring(conn, workspace=workspace),
+        "weekday_names": db.WEEKDAY_NAMES,
+        "describe": db.describe_recurring,
     }
     return templates.TemplateResponse(request, template, context)
 
@@ -198,4 +201,53 @@ def tag_new(request: Request, name: str = Form("")):
 @router.post("/tags/{name}/delete")
 def tag_delete(request: Request, name: str):
     db.remove_allowed_tag(_conn(request), name)
+    return Response(status_code=204, headers={"HX-Refresh": "true"})
+
+
+# ---------- recurring rules (also HX-Refresh: a new rule can spawn a task
+# immediately, so the list, the rules section and the counts all change) ----------
+
+@router.post("/recurring/new")
+def recurring_new(
+    request: Request,
+    title: str = Form(""),
+    freq: str = Form("weekly"),
+    interval_n: int = Form(1),
+    weekday: int = Form(0),
+    monthday: int = Form(1),
+    priority: str = Form("normal"),
+    tags: list[str] = Form([]),
+    task_workspace: str = Form(""),
+    workspace: str = Form("home"),
+):
+    if title.strip():
+        try:
+            db.create_recurring(
+                _conn(request),
+                title=title.strip(),
+                freq=freq if freq in db.FREQUENCIES else "weekly",
+                priority=priority if priority in ("low", "normal", "high") else "normal",
+                tags=tags,
+                workspace=_norm_workspace(task_workspace or workspace),
+                interval_n=max(1, interval_n),
+                weekday=weekday if freq == "weekly" else None,
+                monthday=monthday if freq == "monthly" else None,
+            )
+            db.spawn_due_tasks(_conn(request))
+        except ValueError:
+            pass
+    return Response(status_code=204, headers={"HX-Refresh": "true"})
+
+
+@router.post("/recurring/{rule_id}/toggle")
+def recurring_toggle(request: Request, rule_id: int):
+    rule = db.get_recurring(_conn(request), rule_id)
+    if rule is not None:
+        db.set_recurring_active(_conn(request), rule_id, not rule["active"])
+    return Response(status_code=204, headers={"HX-Refresh": "true"})
+
+
+@router.post("/recurring/{rule_id}/delete")
+def recurring_delete(request: Request, rule_id: int):
+    db.delete_recurring(_conn(request), rule_id)
     return Response(status_code=204, headers={"HX-Refresh": "true"})

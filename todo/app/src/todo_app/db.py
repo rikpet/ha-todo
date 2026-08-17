@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import calendar
 import json
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -34,9 +35,35 @@ MIGRATIONS: list[str] = [
     CREATE INDEX idx_tasks_workspace ON tasks(workspace);
     CREATE TABLE allowed_tags (name TEXT PRIMARY KEY) WITHOUT ROWID;
     """,
+    # 3: recurring task rules
+    """
+    CREATE TABLE recurring (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        priority TEXT NOT NULL DEFAULT 'normal'
+            CHECK (priority IN ('low', 'normal', 'high')),
+        tags TEXT NOT NULL DEFAULT '[]',
+        workspace TEXT NOT NULL DEFAULT 'home' CHECK (workspace IN ('home', 'work')),
+        freq TEXT NOT NULL CHECK (freq IN ('daily', 'weekly', 'monthly')),
+        interval_n INTEGER NOT NULL DEFAULT 1 CHECK (interval_n >= 1),
+        weekday INTEGER CHECK (weekday BETWEEN 0 AND 6),
+        monthday INTEGER CHECK (monthday BETWEEN 1 AND 31),
+        due_offset_days INTEGER NOT NULL DEFAULT 0,
+        active INTEGER NOT NULL DEFAULT 1,
+        next_run TEXT NOT NULL,
+        last_spawned_on TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    ALTER TABLE tasks ADD COLUMN recurring_id INTEGER;
+    CREATE INDEX idx_tasks_recurring ON tasks(recurring_id);
+    """,
 ]
 
 WORKSPACES = ("home", "work")
+FREQUENCIES = ("daily", "weekly", "monthly")
+WEEKDAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
 
 def default_db_path() -> str:
@@ -103,15 +130,17 @@ def create_task(
     due_date: str | None = None,
     tags: list[str] | None = None,
     workspace: str = "home",
+    recurring_id: int | None = None,
 ) -> dict[str, Any]:
     _validate_workspace(workspace)
     _validate_tags(conn, tags or [])
     now = _now()
     cur = conn.execute(
         """INSERT INTO tasks (title, description, priority, due_date, tags, workspace,
-                              created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (title, description, priority, due_date, json.dumps(tags or []), workspace, now, now),
+                              recurring_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (title, description, priority, due_date, json.dumps(tags or []), workspace,
+         recurring_id, now, now),
     )
     conn.commit()
     return get_task(conn, cur.lastrowid)
@@ -198,6 +227,195 @@ def delete_task(conn: sqlite3.Connection, task_id: int) -> bool:
     cur = conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
     conn.commit()
     return cur.rowcount > 0
+
+
+# ---------- recurring rules ----------
+
+
+def _add_months(day: date, months: int, monthday: int) -> date:
+    """Move `months` forward, landing on `monthday` (clamped to the month's length)."""
+    total = day.month - 1 + months
+    year = day.year + total // 12
+    month = total % 12 + 1
+    last = calendar.monthrange(year, month)[1]
+    return date(year, month, min(monthday, last))
+
+
+def first_occurrence(rule: dict[str, Any], on_or_after: date) -> date:
+    """The rule's first run date on or after the given day."""
+    freq = rule["freq"]
+    if freq == "daily":
+        return on_or_after
+    if freq == "weekly":
+        weekday = rule["weekday"] if rule.get("weekday") is not None else on_or_after.weekday()
+        return on_or_after + timedelta(days=(weekday - on_or_after.weekday()) % 7)
+    monthday = rule.get("monthday") or on_or_after.day
+    candidate = _add_months(on_or_after, 0, monthday)
+    if candidate < on_or_after:
+        candidate = _add_months(on_or_after, 1, monthday)
+    return candidate
+
+
+def next_occurrence(rule: dict[str, Any], previous: date) -> date:
+    """The run date following `previous`, honouring the rule's interval."""
+    interval = max(1, int(rule.get("interval_n") or 1))
+    freq = rule["freq"]
+    if freq == "daily":
+        return previous + timedelta(days=interval)
+    if freq == "weekly":
+        return previous + timedelta(weeks=interval)
+    return _add_months(previous, interval, rule.get("monthday") or previous.day)
+
+
+def _row_to_rule(row: sqlite3.Row) -> dict[str, Any]:
+    rule = dict(row)
+    rule["tags"] = json.loads(rule["tags"])
+    rule["active"] = bool(rule["active"])
+    return rule
+
+
+def create_recurring(
+    conn: sqlite3.Connection,
+    *,
+    title: str,
+    freq: str,
+    description: str = "",
+    priority: str = "normal",
+    tags: list[str] | None = None,
+    workspace: str = "home",
+    interval_n: int = 1,
+    weekday: int | None = None,
+    monthday: int | None = None,
+    due_offset_days: int = 0,
+    start_date: str | None = None,
+) -> dict[str, Any]:
+    if freq not in FREQUENCIES:
+        raise ValueError(f"Frequency must be one of: {', '.join(FREQUENCIES)}")
+    if interval_n < 1:
+        raise ValueError("Interval must be at least 1")
+    if freq == "weekly" and weekday is None:
+        raise ValueError("Weekly rules need a weekday (0=Monday .. 6=Sunday)")
+    if freq == "weekly" and not 0 <= weekday <= 6:
+        raise ValueError("Weekday must be between 0 (Monday) and 6 (Sunday)")
+    if freq == "monthly" and monthday is not None and not 1 <= monthday <= 31:
+        raise ValueError("Month day must be between 1 and 31")
+    _validate_workspace(workspace)
+    _validate_tags(conn, tags or [])
+
+    start = date.fromisoformat(start_date) if start_date else date.today()
+    draft = {"freq": freq, "weekday": weekday, "monthday": monthday, "interval_n": interval_n}
+    next_run = first_occurrence(draft, start)
+    now = _now()
+    cur = conn.execute(
+        """INSERT INTO recurring (title, description, priority, tags, workspace, freq,
+                                  interval_n, weekday, monthday, due_offset_days,
+                                  next_run, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (title, description, priority, json.dumps(tags or []), workspace, freq,
+         interval_n, weekday, monthday, due_offset_days, next_run.isoformat(), now, now),
+    )
+    conn.commit()
+    return get_recurring(conn, cur.lastrowid)
+
+
+def get_recurring(conn: sqlite3.Connection, rule_id: int) -> dict[str, Any] | None:
+    row = conn.execute("SELECT * FROM recurring WHERE id = ?", (rule_id,)).fetchone()
+    return _row_to_rule(row) if row else None
+
+
+def list_recurring(
+    conn: sqlite3.Connection, *, workspace: str | None = None, active_only: bool = False
+) -> list[dict[str, Any]]:
+    clauses, params = [], []
+    if workspace:
+        clauses.append("workspace = ?")
+        params.append(workspace)
+    if active_only:
+        clauses.append("active = 1")
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = conn.execute(f"SELECT * FROM recurring {where} ORDER BY next_run, id", params)
+    return [_row_to_rule(r) for r in rows]
+
+
+def set_recurring_active(
+    conn: sqlite3.Connection, rule_id: int, active: bool
+) -> dict[str, Any] | None:
+    cur = conn.execute(
+        "UPDATE recurring SET active = ?, updated_at = ? WHERE id = ?",
+        (1 if active else 0, _now(), rule_id),
+    )
+    conn.commit()
+    return get_recurring(conn, rule_id) if cur.rowcount else None
+
+
+def delete_recurring(conn: sqlite3.Connection, rule_id: int) -> bool:
+    cur = conn.execute("DELETE FROM recurring WHERE id = ?", (rule_id,))
+    conn.commit()
+    # already-created tasks stay, they just lose the link back to the rule
+    conn.execute("UPDATE tasks SET recurring_id = NULL WHERE recurring_id = ?", (rule_id,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def describe_recurring(rule: dict[str, Any]) -> str:
+    """Human-readable schedule, e.g. 'every 2 weeks on Monday'."""
+    n = rule.get("interval_n") or 1
+    freq = rule["freq"]
+    if freq == "daily":
+        return "every day" if n == 1 else f"every {n} days"
+    if freq == "weekly":
+        day = WEEKDAY_NAMES[rule["weekday"]] if rule.get("weekday") is not None else ""
+        every = "every week" if n == 1 else f"every {n} weeks"
+        return f"{every} on {day}" if day else every
+    every = "every month" if n == 1 else f"every {n} months"
+    return f"{every} on day {rule['monthday']}" if rule.get("monthday") else every
+
+
+def _has_open_instance(conn: sqlite3.Connection, rule_id: int) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM tasks WHERE recurring_id = ? AND status = 'open' LIMIT 1", (rule_id,)
+    ).fetchone()
+    return row is not None
+
+
+def spawn_due_tasks(
+    conn: sqlite3.Connection, today: date | None = None
+) -> list[dict[str, Any]]:
+    """Create tasks for every rule that has come due. Safe to call repeatedly.
+
+    Missed runs (add-on offline, HA rebooted) collapse into a single task rather
+    than a backlog of copies, and a rule whose previous task is still open does
+    not stack another one on top.
+    """
+    today = today or date.today()
+    created: list[dict[str, Any]] = []
+    for rule in list_recurring(conn, active_only=True):
+        run_date = date.fromisoformat(rule["next_run"])
+        if run_date > today:
+            continue
+        if not _has_open_instance(conn, rule["id"]):
+            due = run_date + timedelta(days=rule["due_offset_days"])
+            created.append(
+                create_task(
+                    conn,
+                    title=rule["title"],
+                    description=rule["description"],
+                    priority=rule["priority"],
+                    due_date=due.isoformat(),
+                    tags=[t for t in rule["tags"] if t in set(allowed_tags(conn))],
+                    workspace=rule["workspace"],
+                    recurring_id=rule["id"],
+                )
+            )
+        upcoming = run_date
+        while upcoming <= today:
+            upcoming = next_occurrence(rule, upcoming)
+        conn.execute(
+            "UPDATE recurring SET next_run = ?, last_spawned_on = ?, updated_at = ? WHERE id = ?",
+            (upcoming.isoformat(), today.isoformat(), _now(), rule["id"]),
+        )
+        conn.commit()
+    return created
 
 
 def allowed_tags(conn: sqlite3.Connection) -> list[str]:
