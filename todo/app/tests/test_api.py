@@ -129,6 +129,22 @@ def test_web_add_to_other_workspace(client):
     assert "For the office" in c.get("/", params={"workspace": "work"}).text
 
 
+def test_web_add_defaults_to_viewed_workspace(client):
+    # no task_workspace field: the task must land in the workspace being viewed,
+    # not a fixed 'home' default (regression: tasks vanished from the Work tab)
+    c = client
+    c.post("/tasks/new", data={"title": "Typed on the work tab", "workspace": "work"})
+    assert "Typed on the work tab" in c.get("/", params={"workspace": "work"}).text
+    assert "Typed on the work tab" not in c.get("/", params={"workspace": "home"}).text
+
+
+def test_add_form_resyncs_workspace_selector(client):
+    # the add form must re-point its selector at the active tab after reset()
+    page = client.get("/").text
+    assert "syncWorkspace()" in page
+    assert "this.reset(); syncWorkspace();" in page
+
+
 def test_pwa_manifest_and_icons(client):
     page = client.get("/", headers={"X-Ingress-Path": "/api/hassio_ingress/abc"}).text
     assert '/api/hassio_ingress/abc/static/manifest.json' in page

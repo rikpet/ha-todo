@@ -83,7 +83,7 @@ def create(
     priority: str = Form("normal"),
     due_date: str = Form(""),
     tags: list[str] = Form([]),
-    task_workspace: str = Form("home"),
+    task_workspace: str = Form(""),
     workspace: str = Form("home"),
     status: str = Form("open"),
     tag: str = Form(""),
@@ -99,7 +99,8 @@ def create(
                 priority=priority if priority in ("low", "normal", "high") else "normal",
                 due_date=due_date or None,
                 tags=tags,
-                workspace=_norm_workspace(task_workspace),
+                # fall back to the workspace being viewed, never a fixed default
+                workspace=_norm_workspace(task_workspace or workspace),
             )
         except ValueError:
             pass  # stale tag checkbox after tag removal — just re-render

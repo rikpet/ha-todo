@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.5
+
+- Fix the workspace selector reverting to *Home* after adding a task: on the Work tab, the next task you added silently went to Home and disappeared from the list. The selector now follows the active tab, and a task posted without an explicit workspace lands in the workspace you are viewing.
+
 ## 0.3.4
 
 - Install as an iPhone/Android home-screen app: web manifest, app icons and Apple meta tags added. Open the LAN URL in Safari/Chrome and use "Add to Home Screen" — the UI runs standalone with its own blue checkmark icon.

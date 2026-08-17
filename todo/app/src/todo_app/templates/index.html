@@ -48,7 +48,7 @@
   </form>
 
   <form class="add-form" hx-post="{{ root }}/tasks/new" hx-target="#task-table" hx-include="#filters"
-        hx-on::after-request="if(event.detail.successful) this.reset()">
+        hx-on::after-request="if(event.detail.successful) { this.reset(); syncWorkspace(); }">
     <div class="add-bar">
       <input name="title" placeholder="Add a task…" required autocomplete="off">
       <select name="task_workspace" id="task-workspace" aria-label="Workspace for the new task">
@@ -103,12 +103,17 @@
   </details>
 </main>
 <script>
-  // keep the add-form workspace selector in sync with the active tab
+  // Point the add-form's workspace selector at the active tab. Called on tab
+  // change and after the form resets (reset() would otherwise restore the
+  // page-load default and silently file the next task in the wrong workspace).
+  function syncWorkspace() {
+    var active = document.querySelector(".ws-tabs input[name='workspace']:checked");
+    var sel = document.getElementById('task-workspace');
+    if (active && sel) sel.value = active.value;
+  }
+
   document.addEventListener('change', function (e) {
-    if (e.target.name === 'workspace') {
-      var sel = document.getElementById('task-workspace');
-      if (sel) sel.value = e.target.value;
-    }
+    if (e.target.name === 'workspace') syncWorkspace();
   });
 </script>
 </body>
