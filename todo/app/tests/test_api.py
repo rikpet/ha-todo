@@ -116,6 +116,14 @@ def test_web_add_to_other_workspace(client):
     assert "For the office" in c.get("/", params={"workspace": "work"}).text
 
 
+def test_static_links_are_cache_busted(client):
+    from todo_app import __version__
+
+    page = client.get("/")
+    assert f"/static/app.css?v={__version__}" in page.text
+    assert f"/static/htmx.min.js?v={__version__}" in page.text
+
+
 def test_ingress_path_header_prefixes_urls(client):
     page = client.get("/", headers={"X-Ingress-Path": "/api/hassio_ingress/abc"})
     assert '/api/hassio_ingress/abc/static/htmx.min.js' in page.text

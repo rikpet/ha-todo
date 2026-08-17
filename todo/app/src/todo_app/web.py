@@ -11,8 +11,12 @@ from fastapi.templating import Jinja2Templates
 
 from . import db
 
+from . import __version__
+
 router = APIRouter()
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+# cache-buster for static assets: browsers cache CSS/JS across add-on updates
+templates.env.globals["app_version"] = __version__
 
 
 def _conn(request: Request):

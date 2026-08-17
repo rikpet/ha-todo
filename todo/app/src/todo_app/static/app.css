@@ -386,9 +386,9 @@ main {
 }
 
 .add-bar select {
-    border: none;
-    background: var(--chip);
-    color: var(--chip-text);
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text);
     font: inherit;
     font-size: 0.85rem;
     border-radius: 7px;
@@ -396,6 +396,8 @@ main {
     outline: none;
     cursor: pointer;
 }
+
+.add-bar select:focus { border-color: var(--accent); }
 
 /* ---------- tag pickers ---------- */
 
@@ -479,9 +481,11 @@ main {
     color: var(--text);
     font: inherit;
     font-size: 0.85rem;
-    padding: 0.25rem 0.55rem;
+    padding: 0.3rem 0.55rem;
     outline: none;
     width: 9rem;
 }
 
 .tag-add input:focus { border-color: var(--accent); }
+
+.tag-add .btn { padding: 0.3rem 0.9rem; font-size: 0.85rem; }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- Fix stale styling after updates: static CSS/JS links now carry a version query so browsers stop serving cached stylesheets from older versions. (If the 0.3.0 additions looked unstyled, this was why.)
+- Style polish: the workspace selector in the add bar and the "Manage tags" controls now match the rest of the form elements.
+
 ## 0.3.0
 
 - **Workspaces**: tasks now live in either *Home* or *Work*. The web UI has workspace tabs, and the add-form has its own workspace selector so you can file a task to the other workspace without switching. CLI: `-w/--workspace` on `add`, `list`, `edit`. Existing tasks land in *Home*.

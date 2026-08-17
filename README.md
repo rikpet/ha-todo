@@ -21,7 +21,7 @@ Data lives in the add-on's `/data/todo.db` and survives updates and restarts.
 ## CLI on your laptop
 
 ```bash
-pipx install "git+https://github.com/rikpet/ha-todo.git#subdirectory=todo/app"
+pip install "git+https://github.com/rikpet/ha-todo.git#subdirectory=todo/app"
 todo config                       # prompts for the server URL
 todo tags add home errands        # tags are curated: configure before use
 todo add "Buy milk" --due 2026-08-10 -p high -t home
