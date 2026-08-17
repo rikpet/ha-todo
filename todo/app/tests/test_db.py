@@ -9,12 +9,12 @@ def _allow(conn, *names):
 
 
 def test_create_and_get(conn):
-    _allow(conn, "home")
-    task = db.create_task(conn, title="Buy milk", tags=["home"], due_date="2026-08-10")
+    _allow(conn, "private")
+    task = db.create_task(conn, title="Buy milk", tags=["private"], due_date="2026-08-10")
     assert task["id"] == 1
     assert task["status"] == "open"
-    assert task["tags"] == ["home"]
-    assert task["workspace"] == "home"
+    assert task["tags"] == ["private"]
+    assert task["workspace"] == "private"
     assert db.get_task(conn, 1)["title"] == "Buy milk"
     assert db.get_task(conn, 999) is None
 
@@ -32,7 +32,7 @@ def test_workspaces(conn):
     db.create_task(conn, title="Home thing")
     db.create_task(conn, title="Work thing", workspace="work")
     assert [t["title"] for t in db.list_tasks(conn, workspace="work")] == ["Work thing"]
-    assert [t["title"] for t in db.list_tasks(conn, workspace="home")] == ["Home thing"]
+    assert [t["title"] for t in db.list_tasks(conn, workspace="private")] == ["Home thing"]
     with pytest.raises(ValueError, match="Workspace"):
         db.create_task(conn, title="X", workspace="garage")
 
@@ -63,8 +63,8 @@ def test_clear_due_date(conn):
 
 
 def test_filters(conn):
-    _allow(conn, "home", "work")
-    db.create_task(conn, title="Fix bike", tags=["home"], due_date="2026-01-01")
+    _allow(conn, "private", "work")
+    db.create_task(conn, title="Fix bike", tags=["private"], due_date="2026-01-01")
     db.create_task(conn, title="Write report", tags=["work"], priority="high")
     done_id = db.create_task(conn, title="Old thing")["id"]
     db.update_task(conn, done_id, status="done")
@@ -128,6 +128,46 @@ def test_migration_from_v1(tmp_path):
     conn = db.connect(path)
     task = db.get_task(conn, 1)
     assert task["title"] == "legacy"
-    assert task["workspace"] == "home"
+    assert task["workspace"] == "private"
     assert db.allowed_tags(conn) == []
+    conn.close()
+
+
+def test_migration_v3_renames_home_to_private(tmp_path):
+    """A live database (tasks + rules in 'home') must carry over to 'private'."""
+    import sqlite3
+
+    path = str(tmp_path / "v3.db")
+    old = sqlite3.connect(path)
+    for script in db.MIGRATIONS[:3]:
+        old.executescript(script)
+    old.execute(
+        """INSERT INTO tasks (title, workspace, status, priority, tags, created_at, updated_at)
+           VALUES ('Old home task', 'home', 'done', 'high', '["x"]', 't', 't')"""
+    )
+    old.execute(
+        """INSERT INTO tasks (title, workspace, created_at, updated_at)
+           VALUES ('Old work task', 'work', 't', 't')"""
+    )
+    old.execute(
+        """INSERT INTO recurring (title, workspace, freq, next_run, created_at, updated_at)
+           VALUES ('Old home rule', 'home', 'daily', '2026-09-01', 't', 't')"""
+    )
+    old.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)")
+    old.execute("INSERT INTO schema_version (version) VALUES (3)")
+    old.commit()
+    old.close()
+
+    conn = db.connect(path)
+    tasks = {t["title"]: t for t in db.list_tasks(conn)}
+    assert tasks["Old home task"]["workspace"] == "private"
+    assert tasks["Old work task"]["workspace"] == "work"
+    # unrelated columns survive the table rebuild
+    assert tasks["Old home task"]["status"] == "done"
+    assert tasks["Old home task"]["priority"] == "high"
+    assert tasks["Old home task"]["tags"] == ["x"]
+    assert db.get_recurring(conn, 1)["workspace"] == "private"
+    # and the new constraint is in force
+    with pytest.raises(ValueError):
+        db.create_task(conn, title="nope", workspace="home")
     conn.close()

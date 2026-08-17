@@ -7,6 +7,7 @@ Todo app for Home Assistant on a Raspberry Pi 5 (or any HA OS box):
 - **CLI**: `todo` command for your laptop, talks to the same API over LAN
 - **REST API**: `/api/v1` (OpenAPI docs at `/docs`)
 - **Recurring tasks**: daily/weekly/monthly rules that create tasks automatically
+- **Workspaces**: tasks are split into *Private* and *Work*
 
 No authentication on the LAN port — the app trusts your home network. Ingress access goes through your normal HA login. If you don't want LAN access, remove the port mapping in the add-on's network settings (the CLI needs it, though).
 
@@ -24,9 +25,9 @@ Data lives in the add-on's `/data/todo.db` and survives updates and restarts.
 ```bash
 pipx install "git+https://github.com/rikpet/ha-todo.git#subdirectory=todo/app"
 todo config                       # prompts for the server URL
-todo tags add home errands        # tags are curated: configure before use
+todo tags add hushall errands     # tags are curated: configure before use
 todo add "Sprint review"          # CLI defaults to the work workspace
-todo add "Buy milk" -w home --due 2026-08-10 -p high -t home
+todo add "Buy milk" -w private --due 2026-08-10 -p high -t errands
 todo list                         # both workspaces; -w to filter
 todo edit 1                       # no flags = interactive walkthrough
 todo done 1

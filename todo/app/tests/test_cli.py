@@ -12,7 +12,7 @@ BASE = "http://pi:8099/api/v1"
 
 TASK = {
     "id": 1, "title": "Buy milk", "description": "", "status": "open",
-    "priority": "normal", "due_date": None, "tags": ["home"], "workspace": "home",
+    "priority": "normal", "due_date": None, "tags": ["private"], "workspace": "private",
     "created_at": "2026-08-04T10:00:00+00:00", "updated_at": "2026-08-04T10:00:00+00:00",
     "completed_at": None,
 }
@@ -25,30 +25,30 @@ def env(monkeypatch):
 
 @respx.mock
 def test_add_with_args():
-    respx.get(f"{BASE}/tags").mock(return_value=Response(200, json=["home"]))
+    respx.get(f"{BASE}/tags").mock(return_value=Response(200, json=["private"]))
     route = respx.post(f"{BASE}/tasks").mock(return_value=Response(201, json=TASK))
-    result = runner.invoke(app, ["add", "Buy milk", "--tag", "home"])
+    result = runner.invoke(app, ["add", "Buy milk", "--tag", "private"])
     assert result.exit_code == 0
     assert "Added" in result.output
     body = json.loads(route.calls[0].request.content)
     assert body["title"] == "Buy milk"
-    assert body["tags"] == ["home"]
+    assert body["tags"] == ["private"]
     assert body["workspace"] == "work"  # CLI defaults to the work workspace
 
 
 @respx.mock
-def test_add_home_workspace_override():
+def test_add_private_workspace_override():
     route = respx.post(f"{BASE}/tasks").mock(
         return_value=Response(201, json={**TASK, "tags": []})
     )
-    result = runner.invoke(app, ["add", "Water plants", "-w", "home"])
+    result = runner.invoke(app, ["add", "Water plants", "-w", "private"])
     assert result.exit_code == 0
-    assert json.loads(route.calls[0].request.content)["workspace"] == "home"
+    assert json.loads(route.calls[0].request.content)["workspace"] == "private"
 
 
 @respx.mock
 def test_add_unknown_tag_fails():
-    respx.get(f"{BASE}/tags").mock(return_value=Response(200, json=["home"]))
+    respx.get(f"{BASE}/tags").mock(return_value=Response(200, json=["private"]))
     result = runner.invoke(app, ["add", "X", "--tag", "random"])
     assert result.exit_code == 1
     assert "Unknown tag" in result.output
@@ -136,10 +136,10 @@ def test_rm_with_yes():
 
 @respx.mock
 def test_tags_list():
-    respx.get(f"{BASE}/tags").mock(return_value=Response(200, json=["home", "work"]))
+    respx.get(f"{BASE}/tags").mock(return_value=Response(200, json=["errands", "work"]))
     result = runner.invoke(app, ["tags"])
     assert result.exit_code == 0
-    assert "#home" in result.output
+    assert "#errands" in result.output
     assert "#work" in result.output
 
 
@@ -182,6 +182,43 @@ def test_version_flag_survives_unreachable_server():
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
     assert "unreachable" in result.output
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    "error",
+    [
+        __import__("httpx").ConnectError("refused"),
+        __import__("httpx").ConnectTimeout("timed out"),
+        __import__("httpx").ReadTimeout("slow"),
+    ],
+)
+def test_unreachable_server_gives_a_message_not_a_traceback(error):
+    respx.get(f"{BASE}/tasks", params={"status": "open"}).mock(side_effect=error)
+    result = runner.invoke(app, ["list"])
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "Cannot reach the todo server" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_url_without_scheme_is_accepted(monkeypatch):
+    from todo_app.cli import normalize_url
+
+    assert normalize_url("10.150.1.89:8099") == "http://10.150.1.89:8099"
+    assert normalize_url("http://pi:8099/") == "http://pi:8099"
+    assert normalize_url("https://pi:8099") == "https://pi:8099"
+
+
+@respx.mock
+def test_bare_host_config_still_talks_to_the_server(monkeypatch):
+    monkeypatch.setenv("TODO_URL", "pi:8099")  # no scheme
+    respx.get(f"{BASE}/tasks", params={"status": "open"}).mock(
+        return_value=Response(200, json=[TASK])
+    )
+    result = runner.invoke(app, ["list"])
+    assert result.exit_code == 0
+    assert "Buy milk" in result.output
 
 
 def test_no_config(monkeypatch):

@@ -35,7 +35,7 @@ Deleting a rule keeps the tasks it already created. Pausing stops new ones witho
 From the CLI:
 
 ```bash
-todo recur add "Ta ut soporna" -f weekly --on monday -w home
+todo recur add "Ta ut soporna" -f weekly --on monday -w private
 todo recur add "Månadsrapport" -f monthly --day 1
 todo recur add "Vattna blommorna" -f daily -n 3      # every 3 days
 todo recur                                           # list rules
@@ -55,9 +55,9 @@ On your laptop:
 ```bash
 pipx install "git+https://github.com/rikpet/ha-todo.git#subdirectory=todo/app"
 todo config --url http://10.150.1.89:8099   # your HA box's IP
-todo tags add home errands            # tags must be configured before use
+todo tags add hushall errands         # tags must be configured before use
 todo add "Sprint review"              # CLI defaults to the work workspace
-todo add "Buy milk" -w home --due 2026-08-10 --priority high --tag home
+todo add "Buy milk" -w private --due 2026-08-10 --priority high --tag errands
 todo list                             # both workspaces; -w work to filter
 todo done 1
 ```

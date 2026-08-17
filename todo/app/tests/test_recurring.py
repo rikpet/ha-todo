@@ -125,12 +125,12 @@ def test_spawn_copies_rule_fields(conn):
     db.add_allowed_tag(conn, "hushall")
     db.create_recurring(
         conn, title="Vacuum", freq="weekly", weekday=5, priority="high", tags=["hushall"],
-        workspace="home", due_offset_days=2, start_date="2026-08-04",
+        workspace="private", due_offset_days=2, start_date="2026-08-04",
     )
     task = db.spawn_due_tasks(conn, today=date(2026, 8, 8))[0]
     assert task["priority"] == "high"
     assert task["tags"] == ["hushall"]
-    assert task["workspace"] == "home"
+    assert task["workspace"] == "private"
     assert task["due_date"] == "2026-08-10"  # run date + offset
 
 

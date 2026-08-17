@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 Priority = Literal["low", "normal", "high"]
 Status = Literal["open", "done"]
-Workspace = Literal["home", "work"]
+Workspace = Literal["private", "work"]
 
 
 def _validate_iso_date(value: str | None) -> str | None:
@@ -25,7 +25,7 @@ class TaskCreate(BaseModel):
     priority: Priority = "normal"
     due_date: str | None = None
     tags: list[str] = []
-    workspace: Workspace = "home"
+    workspace: Workspace = "private"
 
     _check_due = field_validator("due_date")(_validate_iso_date)
 
@@ -71,7 +71,7 @@ class RecurringCreate(BaseModel):
     description: str = ""
     priority: Priority = "normal"
     tags: list[str] = []
-    workspace: Workspace = "home"
+    workspace: Workspace = "private"
     interval_n: int = Field(default=1, ge=1, le=365)
     weekday: int | None = Field(default=None, ge=0, le=6)
     monthday: int | None = Field(default=None, ge=1, le=31)

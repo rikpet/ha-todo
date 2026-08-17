@@ -49,9 +49,17 @@ def load_config() -> dict:
     return config
 
 
+def normalize_url(url: str) -> str:
+    """Accept '10.0.0.5:8099' as readily as 'http://10.0.0.5:8099'."""
+    url = url.strip().rstrip("/")
+    if url and "://" not in url:
+        url = f"http://{url}"
+    return url
+
+
 def save_config(url: str) -> None:
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(f'url = "{url}"\n', encoding="utf-8")
+    CONFIG_PATH.write_text(f'url = "{normalize_url(url)}"\n', encoding="utf-8")
 
 
 def client() -> httpx.Client:
@@ -59,7 +67,7 @@ def client() -> httpx.Client:
     url = config.get("url")
     if not url:
         _fail("No server configured. Run [bold]todo config[/bold] first.")
-    return httpx.Client(base_url=f"{url.rstrip('/')}/api/v1", timeout=10)
+    return httpx.Client(base_url=f"{normalize_url(url)}/api/v1", timeout=10)
 
 
 def _fail(message: str) -> None:
@@ -71,12 +79,30 @@ def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
+def _unreachable(exc: Exception) -> None:
+    """Turn any transport-level failure into a readable message, never a traceback."""
+    url = normalize_url(load_config().get("url", "")) or "(not configured)"
+    if isinstance(exc, httpx.TimeoutException):
+        reason = "timed out - the host is up but not answering on that port"
+    elif isinstance(exc, (httpx.UnsupportedProtocol, httpx.InvalidURL)):
+        reason = "the configured URL is not valid"
+    elif isinstance(exc, httpx.ConnectError):
+        reason = "no response - the add-on may be stopped, or the address is wrong"
+    else:
+        reason = f"connection failed ({type(exc).__name__})"
+    _fail(
+        f"Cannot reach the todo server at [bold]{url}[/bold]: {reason}.\n"
+        f"  Check the add-on is running in Home Assistant, that you are on the same "
+        f"network, and that the URL is right ([bold]todo config[/bold] to change it)."
+    )
+
+
 def request(method: str, path: str, **kwargs) -> httpx.Response:
     try:
         with client() as c:
             response = c.request(method, path, **kwargs)
-    except httpx.ConnectError:
-        _fail(f"Cannot reach server at {load_config().get('url')}. Is the add-on running?")
+    except (httpx.RequestError, httpx.InvalidURL) as exc:
+        _unreachable(exc)
     if response.status_code == 404:
         _fail("Task not found.")
     if response.is_error:
@@ -86,8 +112,8 @@ def request(method: str, path: str, **kwargs) -> httpx.Response:
 
 # ---------- helpers ----------
 
-WORKSPACES = ["home", "work"]
-DEFAULT_WORKSPACE = "work"  # the CLI is a work tool; the web UI defaults to home
+WORKSPACES = ["private", "work"]
+DEFAULT_WORKSPACE = "work"  # the CLI is a work tool; the web UI defaults to private
 
 
 def _parse_tags(raw: str) -> list[str]:
@@ -200,13 +226,14 @@ def _version_callback(value: bool) -> None:
     if not url:
         console.print("server      [dim]not configured (run todo config)[/dim]")
         raise typer.Exit()
+    url = normalize_url(url)
     try:
         with httpx.Client(timeout=3) as c:
-            health = c.get(f"{url.rstrip('/')}/health").json()
+            health = c.get(f"{url}/health").json()
         server = health.get("version", "unknown")
         marker = "" if server == __version__ else f"  [yellow]{CROSS} version mismatch[/yellow]"
         console.print(f"server      [bold]{server}[/bold] [dim]({url})[/dim]{marker}")
-    except (httpx.HTTPError, ValueError):
+    except (httpx.RequestError, httpx.InvalidURL, ValueError):
         console.print(f"server      [dim]unreachable ({url})[/dim]")
     raise typer.Exit()
 
@@ -232,13 +259,16 @@ def config(
             _fail("Missing --url (non-interactive shell).")
         url = Prompt.ask("Server URL", default=existing.get("url", "http://homeassistant.local:8099"))
     save_config(url)
-    console.print(f"[green]{CHECK}[/green] Saved to {CONFIG_PATH}")
+    console.print(f"[green]{CHECK}[/green] Saved {normalize_url(url)} to {CONFIG_PATH}")
     try:
         with client() as c:
             c.get("/tasks")
         console.print(f"[green]{CHECK}[/green] Server reachable.")
-    except httpx.HTTPError:
-        console.print("[yellow]![/yellow] Could not reach the server (saved anyway).")
+    except (httpx.RequestError, httpx.InvalidURL) as exc:
+        console.print(
+            f"[yellow]![/yellow] Saved, but the server did not answer "
+            f"([dim]{type(exc).__name__}[/dim]). Check the add-on is running."
+        )
 
 
 @app.command()
@@ -249,10 +279,10 @@ def add(
     tag: list[str] = typer.Option([], "--tag", "-t", help="Repeatable; must be a configured tag"),
     description: Optional[str] = typer.Option(None, "--desc", "-d"),
     workspace: Optional[str] = typer.Option(
-        None, "--workspace", "-w", help="home or work (default: work)"
+        None, "--workspace", "-w", help="private or work (default: work)"
     ),
 ):
-    """Add a task (to the work workspace unless -w home)."""
+    """Add a task (to the work workspace unless -w private)."""
     prompted = title is None
     if title is None:
         if not _interactive():
@@ -298,7 +328,7 @@ def list_cmd(
     done: bool = typer.Option(False, "--done", help="Only done tasks"),
     tag: Optional[str] = typer.Option(None, "--tag", "-t"),
     search: Optional[str] = typer.Option(None, "--search", "-s"),
-    workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="home or work"),
+    workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="private or work"),
 ):
     """List tasks (open by default, both workspaces unless -w given)."""
     params: dict = {}
@@ -337,7 +367,7 @@ def edit(
     priority: Optional[str] = typer.Option(None, "--priority", "-p"),
     tags: Optional[str] = typer.Option(None, "--tags", help="Comma separated, replaces all"),
     description: Optional[str] = typer.Option(None, "--desc", "-d"),
-    workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="Move to home/work"),
+    workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="Move to private/work"),
 ):
     """Edit a task. With no flags, walks through every field interactively."""
     if task_id is None:

@@ -12,10 +12,10 @@ def test_web_ui_shows_version(client):
 
 def test_tag_endpoints(client):
     assert client.get("/api/v1/tags").json() == []
-    assert client.post("/api/v1/tags", json={"name": "home"}).status_code == 201
-    assert client.post("/api/v1/tags", json={"name": "work"}).json() == ["home", "work"]
-    assert client.delete("/api/v1/tags/home").status_code == 204
-    assert client.delete("/api/v1/tags/home").status_code == 404
+    assert client.post("/api/v1/tags", json={"name": "errands"}).status_code == 201
+    assert client.post("/api/v1/tags", json={"name": "work"}).json() == ["errands", "work"]
+    assert client.delete("/api/v1/tags/errands").status_code == 204
+    assert client.delete("/api/v1/tags/errands").status_code == 404
     assert client.get("/api/v1/tags").json() == ["work"]
 
 
@@ -26,7 +26,7 @@ def test_unknown_tag_rejected(client):
 
 
 def test_workspaces(client):
-    assert client.get("/api/v1/workspaces").json() == ["home", "work"]
+    assert client.get("/api/v1/workspaces").json() == ["private", "work"]
     client.post("/api/v1/tasks", json={"title": "Home thing"})
     client.post("/api/v1/tasks", json={"title": "Work thing", "workspace": "work"})
 
@@ -74,11 +74,11 @@ def test_validation(client):
 
 def test_filters_via_api(client):
     c = client
-    c.post("/api/v1/tags", json={"name": "home"})
+    c.post("/api/v1/tags", json={"name": "private"})
     c.post("/api/v1/tags", json={"name": "work"})
-    c.post("/api/v1/tasks", json={"title": "Alpha", "tags": ["home"]})
+    c.post("/api/v1/tasks", json={"title": "Alpha", "tags": ["private"]})
     c.post("/api/v1/tasks", json={"title": "Beta", "tags": ["work"]})
-    assert len(c.get("/api/v1/tasks", params={"tag": "home"}).json()) == 1
+    assert len(c.get("/api/v1/tasks", params={"tag": "private"}).json()) == 1
     assert len(c.get("/api/v1/tasks", params={"search": "bet"}).json()) == 1
 
 
@@ -130,20 +130,20 @@ def test_web_hides_done_by_default(client):
 
 def test_web_add_to_other_workspace(client):
     c = client
-    # active workspace is home, but the task goes to work
+    # active workspace is private, but the task goes to work
     c.post("/tasks/new", data={"title": "For the office", "task_workspace": "work",
-                               "workspace": "home"})
-    assert "For the office" not in c.get("/", params={"workspace": "home"}).text
+                               "workspace": "private"})
+    assert "For the office" not in c.get("/", params={"workspace": "private"}).text
     assert "For the office" in c.get("/", params={"workspace": "work"}).text
 
 
 def test_web_add_defaults_to_viewed_workspace(client):
     # no task_workspace field: the task must land in the workspace being viewed,
-    # not a fixed 'home' default (regression: tasks vanished from the Work tab)
+    # not a fixed default (regression: tasks vanished from the Work tab)
     c = client
     c.post("/tasks/new", data={"title": "Typed on the work tab", "workspace": "work"})
     assert "Typed on the work tab" in c.get("/", params={"workspace": "work"}).text
-    assert "Typed on the work tab" not in c.get("/", params={"workspace": "home"}).text
+    assert "Typed on the work tab" not in c.get("/", params={"workspace": "private"}).text
 
 
 def test_add_form_resyncs_workspace_selector(client):
@@ -177,7 +177,7 @@ def test_recurring_api(client):
 
     created = c.post(
         "/api/v1/recurring",
-        json={"title": "Take out bins", "freq": "weekly", "weekday": 0, "workspace": "home"},
+        json={"title": "Take out bins", "freq": "weekly", "weekday": 0, "workspace": "private"},
     )
     assert created.status_code == 201
     rule = created.json()

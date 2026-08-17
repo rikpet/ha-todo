@@ -59,9 +59,69 @@ MIGRATIONS: list[str] = [
     ALTER TABLE tasks ADD COLUMN recurring_id INTEGER;
     CREATE INDEX idx_tasks_recurring ON tasks(recurring_id);
     """,
+    # 4: rename the 'home' workspace to 'private'. SQLite cannot alter a CHECK
+    # constraint, so both tables are rebuilt and their rows carried across.
+    """
+    CREATE TABLE tasks_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'done')),
+        priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high')),
+        due_date TEXT,
+        tags TEXT NOT NULL DEFAULT '[]',
+        workspace TEXT NOT NULL DEFAULT 'private' CHECK (workspace IN ('private', 'work')),
+        recurring_id INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+    );
+    INSERT INTO tasks_new (id, title, description, status, priority, due_date, tags,
+                           workspace, recurring_id, created_at, updated_at, completed_at)
+        SELECT id, title, description, status, priority, due_date, tags,
+               CASE workspace WHEN 'home' THEN 'private' ELSE workspace END,
+               recurring_id, created_at, updated_at, completed_at
+        FROM tasks;
+    DROP TABLE tasks;
+    ALTER TABLE tasks_new RENAME TO tasks;
+    CREATE INDEX idx_tasks_status ON tasks(status);
+    CREATE INDEX idx_tasks_due ON tasks(due_date);
+    CREATE INDEX idx_tasks_workspace ON tasks(workspace);
+    CREATE INDEX idx_tasks_recurring ON tasks(recurring_id);
+
+    CREATE TABLE recurring_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        priority TEXT NOT NULL DEFAULT 'normal'
+            CHECK (priority IN ('low', 'normal', 'high')),
+        tags TEXT NOT NULL DEFAULT '[]',
+        workspace TEXT NOT NULL DEFAULT 'private' CHECK (workspace IN ('private', 'work')),
+        freq TEXT NOT NULL CHECK (freq IN ('daily', 'weekly', 'monthly')),
+        interval_n INTEGER NOT NULL DEFAULT 1 CHECK (interval_n >= 1),
+        weekday INTEGER CHECK (weekday BETWEEN 0 AND 6),
+        monthday INTEGER CHECK (monthday BETWEEN 1 AND 31),
+        due_offset_days INTEGER NOT NULL DEFAULT 0,
+        active INTEGER NOT NULL DEFAULT 1,
+        next_run TEXT NOT NULL,
+        last_spawned_on TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    INSERT INTO recurring_new (id, title, description, priority, tags, workspace, freq,
+                               interval_n, weekday, monthday, due_offset_days, active,
+                               next_run, last_spawned_on, created_at, updated_at)
+        SELECT id, title, description, priority, tags,
+               CASE workspace WHEN 'home' THEN 'private' ELSE workspace END,
+               freq, interval_n, weekday, monthday, due_offset_days, active,
+               next_run, last_spawned_on, created_at, updated_at
+        FROM recurring;
+    DROP TABLE recurring;
+    ALTER TABLE recurring_new RENAME TO recurring;
+    """,
 ]
 
-WORKSPACES = ("home", "work")
+WORKSPACES = ("private", "work")
 FREQUENCIES = ("daily", "weekly", "monthly")
 WEEKDAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
@@ -129,7 +189,7 @@ def create_task(
     priority: str = "normal",
     due_date: str | None = None,
     tags: list[str] | None = None,
-    workspace: str = "home",
+    workspace: str = "private",
     recurring_id: int | None = None,
 ) -> dict[str, Any]:
     _validate_workspace(workspace)
@@ -282,7 +342,7 @@ def create_recurring(
     description: str = "",
     priority: str = "normal",
     tags: list[str] | None = None,
-    workspace: str = "home",
+    workspace: str = "private",
     interval_n: int = 1,
     weekday: int | None = None,
     monthday: int | None = None,

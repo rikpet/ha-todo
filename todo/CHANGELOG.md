@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0
+
+- The **Home** workspace is now called **Private**. Existing tasks and recurring rules move across automatically when the add-on starts.
+- The CLI explains itself when the server cannot be reached — a clear message with what to check, instead of a Python traceback. Timeouts and malformed URLs are covered too, and `todo config` now accepts a bare `10.0.0.5:8099` (the `http://` is filled in).
+
 ## 0.4.0
 
 - **Recurring tasks.** Define rules that create tasks automatically — daily, weekly on a chosen weekday, or monthly on a chosen day, each with an interval ("every 2 weeks"). Manage them in the web UI's *Recurring tasks* section or with `todo recur add/pause/resume/rm`.

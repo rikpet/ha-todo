@@ -59,7 +59,7 @@ def _render_table(
 @router.get("/", response_class=HTMLResponse)
 def index(
     request: Request,
-    workspace: str = "home",
+    workspace: str = "private",
     status: str = "open",
     tag: str = "",
     search: str = "",
@@ -70,7 +70,7 @@ def index(
 @router.get("/tasks/table", response_class=HTMLResponse)
 def task_table(
     request: Request,
-    workspace: str = "home",
+    workspace: str = "private",
     status: str = "open",
     tag: str = "",
     search: str = "",
@@ -87,7 +87,7 @@ def create(
     due_date: str = Form(""),
     tags: list[str] = Form([]),
     task_workspace: str = Form(""),
-    workspace: str = Form("home"),
+    workspace: str = Form("private"),
     status: str = Form("open"),
     tag: str = Form(""),
     search: str = Form(""),
@@ -121,7 +121,7 @@ def _task_or_404(request: Request, task_id: int) -> dict:
 def toggle(
     request: Request,
     task_id: int,
-    workspace: str = Form("home"),
+    workspace: str = Form("private"),
     status: str = Form("open"),
     tag: str = Form(""),
     search: str = Form(""),
@@ -151,8 +151,8 @@ def edit_save(
     priority: str = Form("normal"),
     due_date: str = Form(""),
     tags: list[str] = Form([]),
-    task_workspace: str = Form("home"),
-    workspace: str = Form("home"),
+    task_workspace: str = Form("private"),
+    workspace: str = Form("private"),
     status: str = Form("open"),
     tag: str = Form(""),
     search: str = Form(""),
@@ -179,7 +179,7 @@ def edit_save(
 def delete(
     request: Request,
     task_id: int,
-    workspace: str = Form("home"),
+    workspace: str = Form("private"),
     status: str = Form("open"),
     tag: str = Form(""),
     search: str = Form(""),
@@ -218,7 +218,7 @@ def recurring_new(
     priority: str = Form("normal"),
     tags: list[str] = Form([]),
     task_workspace: str = Form(""),
-    workspace: str = Form("home"),
+    workspace: str = Form("private"),
 ):
     if title.strip():
         try:
