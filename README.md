@@ -48,6 +48,17 @@ pipx install --force "git+https://github.com/rikpet/ha-todo.git#subdirectory=tod
 
 Check the installed version with `pipx list`.
 
+**Microsoft Store Python note:** pip's git-URL installs can fail with
+`fatal: Unable to read current working directory` (the Store Python's
+filesystem virtualization confuses git). Install from a local clone instead:
+
+```bash
+git clone https://github.com/rikpet/ha-todo.git
+pipx install ./ha-todo/todo/app
+```
+
+and update later with `git pull` in the clone followed by `pipx upgrade ha-todo`.
+
 Every command prompts for whatever you leave out (TTY only — in scripts, missing input is a clean error instead).
 
 ## Development
