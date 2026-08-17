@@ -44,14 +44,12 @@ def load_config() -> dict:
         config = tomllib.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     if os.environ.get("TODO_URL"):
         config["url"] = os.environ["TODO_URL"]
-    if os.environ.get("TODO_TOKEN"):
-        config["token"] = os.environ["TODO_TOKEN"]
     return config
 
 
-def save_config(url: str, token: str) -> None:
+def save_config(url: str) -> None:
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(f'url = "{url}"\ntoken = "{token}"\n', encoding="utf-8")
+    CONFIG_PATH.write_text(f'url = "{url}"\n', encoding="utf-8")
 
 
 def client() -> httpx.Client:
@@ -59,10 +57,7 @@ def client() -> httpx.Client:
     url = config.get("url")
     if not url:
         _fail("No server configured. Run [bold]todo config[/bold] first.")
-    headers = {}
-    if config.get("token"):
-        headers["Authorization"] = f"Bearer {config['token']}"
-    return httpx.Client(base_url=f"{url.rstrip('/')}/api/v1", headers=headers, timeout=10)
+    return httpx.Client(base_url=f"{url.rstrip('/')}/api/v1", timeout=10)
 
 
 def _fail(message: str) -> None:
@@ -80,10 +75,6 @@ def request(method: str, path: str, **kwargs) -> httpx.Response:
             response = c.request(method, path, **kwargs)
     except httpx.ConnectError:
         _fail(f"Cannot reach server at {load_config().get('url')}. Is the add-on running?")
-    if response.status_code == 401:
-        _fail("Unauthorized: wrong or missing token. Run [bold]todo config[/bold].")
-    if response.status_code == 403:
-        _fail("LAN API is disabled on the server (no api_token set in add-on options).")
     if response.status_code == 404:
         _fail("Task not found.")
     if response.is_error:
@@ -161,19 +152,14 @@ def _show_task(t: dict) -> None:
 @app.command()
 def config(
     url: Optional[str] = typer.Option(None, "--url", help="Server URL, e.g. http://pi:8099"),
-    token: Optional[str] = typer.Option(None, "--token", help="API token from add-on options"),
 ):
-    """Configure server URL and token (prompts if omitted)."""
+    """Configure the server URL (prompts if omitted)."""
     existing = load_config()
     if url is None:
         if not _interactive():
             _fail("Missing --url (non-interactive shell).")
         url = Prompt.ask("Server URL", default=existing.get("url", "http://homeassistant.local:8099"))
-    if token is None:
-        if not _interactive():
-            _fail("Missing --token (non-interactive shell).")
-        token = Prompt.ask("API token", password=True, default=existing.get("token", ""))
-    save_config(url, token)
+    save_config(url)
     console.print(f"[green]{CHECK}[/green] Saved to {CONFIG_PATH}")
     try:
         with client() as c:

@@ -21,7 +21,6 @@ TASK = {
 @pytest.fixture(autouse=True)
 def env(monkeypatch):
     monkeypatch.setenv("TODO_URL", "http://pi:8099")
-    monkeypatch.setenv("TODO_TOKEN", "tok")
 
 
 @respx.mock
@@ -33,7 +32,6 @@ def test_add_with_args():
     body = json.loads(route.calls[0].request.content)
     assert body["title"] == "Buy milk"
     assert body["tags"] == ["home"]
-    assert route.calls[0].request.headers["authorization"] == "Bearer tok"
 
 
 def test_add_missing_title_non_interactive():
@@ -88,14 +86,6 @@ def test_rm_with_yes():
     result = runner.invoke(app, ["rm", "1", "--yes"])
     assert result.exit_code == 0
     assert "Removed" in result.output
-
-
-@respx.mock
-def test_unauthorized_hint():
-    respx.get(f"{BASE}/tasks", params={"status": "open"}).mock(return_value=Response(401))
-    result = runner.invoke(app, ["list"])
-    assert result.exit_code == 1
-    assert "todo config" in result.output
 
 
 def test_no_config(monkeypatch):

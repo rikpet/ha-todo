@@ -20,17 +20,5 @@ def app(conn):
 
 
 @pytest.fixture
-def client_with_token(app, monkeypatch):
-    """LAN-style client: not ingress, valid bearer token configured."""
-    monkeypatch.setenv("TODO_API_TOKEN", "secret-token")
-    return TestClient(app, headers={"Authorization": "Bearer secret-token"})
-
-
-@pytest.fixture
-def ingress_client(app, monkeypatch):
-    """Ingress-style client: source host matches HA's ingress proxy."""
-    from todo_app import auth
-
-    monkeypatch.setattr(auth, "HA_INGRESS_IP", "testclient")
-    monkeypatch.delenv("TODO_API_TOKEN", raising=False)
+def client(app):
     return TestClient(app)

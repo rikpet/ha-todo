@@ -5,14 +5,13 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from . import db
-from .auth import require_auth
 
-router = APIRouter(dependencies=[Depends(require_auth)])
+router = APIRouter()
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
 

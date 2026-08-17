@@ -26,18 +26,10 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="HA Todo", lifespan=lifespan)
 
-    @app.middleware("http")
-    async def token_cookie(request, call_next):
-        # NOTE: do not set scope["root_path"] from X-Ingress-Path here — the
-        # ingress proxy strips the prefix from the path, and a root_path that
-        # is not a path prefix breaks Starlette's Mount/StaticFiles routing.
-        # Templates read the header directly to build prefixed URLs.
-        response = await call_next(request)
-        # Persist a valid ?token= as a cookie so LAN browsers authenticate once.
-        token = request.query_params.get("token")
-        if token and response.status_code < 400 and token == os.environ.get("TODO_API_TOKEN"):
-            response.set_cookie("todo_token", token, httponly=True, max_age=365 * 24 * 3600)
-        return response
+    # NOTE: do not set scope["root_path"] from X-Ingress-Path — the ingress
+    # proxy strips the prefix from the path, and a root_path that is not a
+    # path prefix breaks Starlette's Mount/StaticFiles routing. Templates
+    # read the header directly to build prefixed URLs.
 
     @app.get("/health")
     def health():

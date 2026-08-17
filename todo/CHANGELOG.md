@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Removed token authentication entirely. The LAN port (8099) is now open to your local network; Ingress remains behind the Home Assistant login. The `api_token` option is gone and `todo config` only needs the server URL.
+
 ## 0.1.2
 
 - Fix static files (CSS/htmx) returning 404 under Ingress — the UI now loads correctly inside the Home Assistant sidebar.

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from . import db
-from .auth import require_auth
 from .models import Task, TaskCreate, TaskUpdate
 
-router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_auth)])
+router = APIRouter(prefix="/api/v1")
 
 
 def get_conn(request: Request):

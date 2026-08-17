@@ -1,42 +1,9 @@
-from fastapi.testclient import TestClient
+def test_health(client):
+    assert client.get("/health").json() == {"status": "ok"}
 
 
-def test_health_needs_no_auth(app):
-    assert TestClient(app).get("/health").json() == {"status": "ok"}
-
-
-def test_lan_requires_token(app, monkeypatch):
-    monkeypatch.setenv("TODO_API_TOKEN", "secret-token")
-    client = TestClient(app)
-    assert client.get("/api/v1/tasks").status_code == 401
-    bad = client.get("/api/v1/tasks", headers={"Authorization": "Bearer wrong"})
-    assert bad.status_code == 401
-
-
-def test_lan_disabled_without_token_option(app, monkeypatch):
-    monkeypatch.delenv("TODO_API_TOKEN", raising=False)
-    response = TestClient(app).get("/api/v1/tasks")
-    assert response.status_code == 403
-
-
-def test_browser_token_query_param_sets_cookie(app, monkeypatch):
-    monkeypatch.setenv("TODO_API_TOKEN", "secret-token")
-    client = TestClient(app)
-    first = client.get("/", params={"token": "secret-token"})
-    assert first.status_code == 200
-    assert client.cookies.get("todo_token") == "secret-token"
-    # follow-up requests authenticate via the cookie alone
-    assert client.get("/").status_code == 200
-    assert TestClient(app).get("/", params={"token": "wrong"}).status_code == 401
-
-
-def test_ingress_is_trusted(ingress_client):
-    assert ingress_client.get("/api/v1/tasks").status_code == 200
-    assert ingress_client.get("/").status_code == 200
-
-
-def test_crud_roundtrip(client_with_token):
-    c = client_with_token
+def test_crud_roundtrip(client):
+    c = client
     created = c.post(
         "/api/v1/tasks",
         json={"title": "Test task", "priority": "high", "due_date": "2026-09-01", "tags": ["x"]},
@@ -59,16 +26,16 @@ def test_crud_roundtrip(client_with_token):
     assert c.get(f"/api/v1/tasks/{task_id}").status_code == 404
 
 
-def test_validation(client_with_token):
-    c = client_with_token
+def test_validation(client):
+    c = client
     assert c.post("/api/v1/tasks", json={"title": ""}).status_code == 422
     assert c.post("/api/v1/tasks", json={"title": "x", "due_date": "not-a-date"}).status_code == 422
     assert c.post("/api/v1/tasks", json={"title": "x", "priority": "urgent"}).status_code == 422
     assert c.get("/api/v1/tasks", params={"status": "bogus"}).status_code == 422
 
 
-def test_filters_via_api(client_with_token):
-    c = client_with_token
+def test_filters_via_api(client):
+    c = client
     c.post("/api/v1/tasks", json={"title": "Alpha", "tags": ["home"]})
     c.post("/api/v1/tasks", json={"title": "Beta", "tags": ["work"]})
     assert len(c.get("/api/v1/tasks", params={"tag": "home"}).json()) == 1
@@ -76,8 +43,8 @@ def test_filters_via_api(client_with_token):
     assert c.get("/api/v1/tags").json() == ["home", "work"]
 
 
-def test_web_ui_flow(ingress_client):
-    c = ingress_client
+def test_web_ui_flow(client):
+    c = client
     page = c.get("/")
     assert "Add a task" in page.text
 
@@ -98,15 +65,15 @@ def test_web_ui_flow(ingress_client):
     assert "Edited" not in c.get("/").text
 
 
-def test_ingress_path_header_prefixes_urls(ingress_client):
-    page = ingress_client.get("/", headers={"X-Ingress-Path": "/api/hassio_ingress/abc"})
+def test_ingress_path_header_prefixes_urls(client):
+    page = client.get("/", headers={"X-Ingress-Path": "/api/hassio_ingress/abc"})
     assert '/api/hassio_ingress/abc/static/htmx.min.js' in page.text
     assert '/api/hassio_ingress/abc/tasks/new' in page.text
 
 
-def test_static_files_served_under_ingress(ingress_client):
+def test_static_files_served_under_ingress(client):
     # the ingress proxy strips the prefix from the path but sends the header;
     # static must still resolve (regression: root_path broke Mount routing)
     headers = {"X-Ingress-Path": "/api/hassio_ingress/abc"}
-    assert ingress_client.get("/static/app.css", headers=headers).status_code == 200
-    assert ingress_client.get("/static/htmx.min.js", headers=headers).status_code == 200
+    assert client.get("/static/app.css", headers=headers).status_code == 200
+    assert client.get("/static/htmx.min.js", headers=headers).status_code == 200

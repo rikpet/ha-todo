@@ -1,5 +1,5 @@
 name: Todo
-version: "0.1.2"
+version: "0.2.0"
 slug: todo
 description: Simple todo list with web UI, REST API and CLI access
 url: https://github.com/rikpet/ha-todo
@@ -14,11 +14,9 @@ panel_title: Todo
 ports:
   8099/tcp: 8099
 ports_description:
-  8099/tcp: REST API / web UI for LAN access (CLI needs this)
+  8099/tcp: Web UI / REST API on the LAN (unauthenticated - disable if unwanted)
 watchdog: http://[HOST]:[PORT:8099]/health
 options:
-  api_token: ""
   log_level: info
 schema:
-  api_token: str
   log_level: list(debug|info|warning|error)
