@@ -129,6 +129,16 @@ def test_web_add_to_other_workspace(client):
     assert "For the office" in c.get("/", params={"workspace": "work"}).text
 
 
+def test_pwa_manifest_and_icons(client):
+    page = client.get("/", headers={"X-Ingress-Path": "/api/hassio_ingress/abc"}).text
+    assert '/api/hassio_ingress/abc/static/manifest.json' in page
+    assert '/api/hassio_ingress/abc/static/apple-touch-icon.png' in page
+    assert 'apple-mobile-web-app-capable' in page
+    assert client.get("/static/manifest.json").status_code == 200
+    assert client.get("/static/apple-touch-icon.png").status_code == 200
+    assert client.get("/static/icon-512.png").status_code == 200
+
+
 def test_static_links_are_cache_busted(client):
     from todo_app import __version__
 

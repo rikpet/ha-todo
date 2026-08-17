@@ -61,6 +61,13 @@ and update later with `git pull` in the clone followed by `pipx upgrade ha-todo`
 
 Every command prompts for whatever you leave out (TTY only — in scripts, missing input is a clean error instead).
 
+## iPhone / Android home screen app
+
+Open `http://<HA-box-IP>:8099` in Safari (iPhone) or Chrome (Android) and use
+**Add to Home Screen** — the UI installs as a standalone app with its own icon
+(web manifest + Apple touch icons are served by the add-on). Use the LAN port,
+not the Ingress URL.
+
 ## Development
 
 ```bash

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.4
+
+- Install as an iPhone/Android home-screen app: web manifest, app icons and Apple meta tags added. Open the LAN URL in Safari/Chrome and use "Add to Home Screen" — the UI runs standalone with its own blue checkmark icon.
+
 ## 0.3.3
 
 - The web UI now hides done tasks by default — the status filter starts on **Open** instead of **All**. Tap *Done* or *All* to see completed tasks.
