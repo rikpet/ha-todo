@@ -21,16 +21,32 @@ Data lives in the add-on's `/data/todo.db` and survives updates and restarts.
 ## CLI on your laptop
 
 ```bash
-pip install "git+https://github.com/rikpet/ha-todo.git#subdirectory=todo/app"
+pipx install "git+https://github.com/rikpet/ha-todo.git#subdirectory=todo/app"
 todo config                       # prompts for the server URL
 todo tags add home errands        # tags are curated: configure before use
-todo add "Buy milk" --due 2026-08-10 -p high -t home
-todo add "Sprint review" -w work  # workspaces: home (default) / work
+todo add "Sprint review"          # CLI defaults to the work workspace
+todo add "Buy milk" -w home --due 2026-08-10 -p high -t home
 todo list                         # both workspaces; -w to filter
 todo edit 1                       # no flags = interactive walkthrough
 todo done 1
 todo rm 1
 ```
+
+### Updating the CLI
+
+After the add-on has been updated (or new CLI features landed on `main`):
+
+```bash
+pipx upgrade ha-todo
+```
+
+If pipx claims it is already up to date (it caches the git checkout), force a reinstall:
+
+```bash
+pipx install --force "git+https://github.com/rikpet/ha-todo.git#subdirectory=todo/app"
+```
+
+Check the installed version with `pipx list`.
 
 Every command prompts for whatever you leave out (TTY only — in scripts, missing input is a clean error instead).
 

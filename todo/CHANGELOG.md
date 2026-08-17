@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- The CLI now defaults new tasks to the **work** workspace (`-w home` to override); the web UI keeps *Home* as its default tab.
+- Documented how to update the CLI (`pipx upgrade ha-todo`).
+
 ## 0.3.1
 
 - Fix stale styling after updates: static CSS/JS links now carry a version query so browsers stop serving cached stylesheets from older versions. (If the 0.3.0 additions looked unstyled, this was why.)

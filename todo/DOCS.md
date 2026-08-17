@@ -22,13 +22,25 @@ On your laptop:
 pipx install "git+https://github.com/rikpet/ha-todo.git#subdirectory=todo/app"
 todo config --url http://homeassistant.local:8099
 todo tags add home errands            # tags must be configured before use
-todo add "Buy milk" --due 2026-08-10 --priority high --tag home
-todo add "Sprint review" -w work      # workspaces: home (default) or work
+todo add "Sprint review"              # CLI defaults to the work workspace
+todo add "Buy milk" -w home --due 2026-08-10 --priority high --tag home
 todo list                             # both workspaces; -w work to filter
 todo done 1
 ```
 
 Run any command without arguments (`todo add`, `todo edit`, `todo done`) to be prompted interactively.
+
+**Updating the CLI** after an add-on update:
+
+```bash
+pipx upgrade ha-todo
+```
+
+or, if pipx reports it is already up to date:
+
+```bash
+pipx install --force "git+https://github.com/rikpet/ha-todo.git#subdirectory=todo/app"
+```
 
 ## REST API
 

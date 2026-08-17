@@ -33,17 +33,17 @@ def test_add_with_args():
     body = json.loads(route.calls[0].request.content)
     assert body["title"] == "Buy milk"
     assert body["tags"] == ["home"]
-    assert body["workspace"] == "home"
+    assert body["workspace"] == "work"  # CLI defaults to the work workspace
 
 
 @respx.mock
-def test_add_to_work_workspace():
+def test_add_home_workspace_override():
     route = respx.post(f"{BASE}/tasks").mock(
-        return_value=Response(201, json={**TASK, "workspace": "work", "tags": []})
+        return_value=Response(201, json={**TASK, "tags": []})
     )
-    result = runner.invoke(app, ["add", "Meeting prep", "-w", "work"])
+    result = runner.invoke(app, ["add", "Water plants", "-w", "home"])
     assert result.exit_code == 0
-    assert json.loads(route.calls[0].request.content)["workspace"] == "work"
+    assert json.loads(route.calls[0].request.content)["workspace"] == "home"
 
 
 @respx.mock

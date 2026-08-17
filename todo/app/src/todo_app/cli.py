@@ -85,6 +85,7 @@ def request(method: str, path: str, **kwargs) -> httpx.Response:
 # ---------- helpers ----------
 
 WORKSPACES = ["home", "work"]
+DEFAULT_WORKSPACE = "work"  # the CLI is a work tool; the web UI defaults to home
 
 
 def _parse_tags(raw: str) -> list[str]:
@@ -215,9 +216,11 @@ def add(
     priority: Optional[str] = typer.Option(None, "--priority", "-p"),
     tag: list[str] = typer.Option([], "--tag", "-t", help="Repeatable; must be a configured tag"),
     description: Optional[str] = typer.Option(None, "--desc", "-d"),
-    workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="home or work"),
+    workspace: Optional[str] = typer.Option(
+        None, "--workspace", "-w", help="home or work (default: work)"
+    ),
 ):
-    """Add a task. With no arguments, prompts for everything."""
+    """Add a task (to the work workspace unless -w home)."""
     prompted = title is None
     if title is None:
         if not _interactive():
@@ -226,7 +229,7 @@ def add(
         if not title.strip():
             _fail("Title cannot be empty.")
     if prompted and workspace is None:
-        workspace = Prompt.ask("Workspace", choices=WORKSPACES, default=WORKSPACES[0])
+        workspace = Prompt.ask("Workspace", choices=WORKSPACES, default=DEFAULT_WORKSPACE)
     if workspace is not None and workspace not in WORKSPACES:
         _fail(f"Workspace must be one of: {', '.join(WORKSPACES)}")
     if prompted and due is None:
@@ -248,7 +251,7 @@ def add(
         "priority": priority or "normal",
         "tags": tags,
         "description": description or "",
-        "workspace": workspace or WORKSPACES[0],
+        "workspace": workspace or DEFAULT_WORKSPACE,
     }
     task = request("POST", "/tasks", json=payload).json()
     console.print(
