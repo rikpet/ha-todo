@@ -241,6 +241,66 @@ def test_recurring_web_flow(client):
     assert c.get("/api/v1/recurring").json() == []
 
 
+def test_myday_api(client):
+    c = client
+    today = __import__("todo_app.db", fromlist=["db"]).today_iso()
+    assert c.get("/api/v1/myday").json() == []
+
+    flagged = c.post("/api/v1/tasks", json={"title": "Flag me"}).json()
+    c.post("/api/v1/tasks", json={"title": "Ignore me"})
+    c.post("/api/v1/tasks", json={"title": "Due today", "due_date": today})
+
+    planned = c.post(f"/api/v1/tasks/{flagged['id']}/plan").json()
+    assert planned["planned_for"] == today
+
+    listed = [t["title"] for t in c.get("/api/v1/myday").json()]
+    assert sorted(listed) == ["Due today", "Flag me"]
+
+    # unflagging removes it again; the due-today one stays
+    c.post(f"/api/v1/tasks/{flagged['id']}/unplan")
+    assert [t["title"] for t in c.get("/api/v1/myday").json()] == ["Due today"]
+
+    assert c.post("/api/v1/tasks/999/plan").status_code == 404
+    assert c.post("/api/v1/tasks/999/unplan").status_code == 404
+    assert c.post(f"/api/v1/tasks/{flagged['id']}/plan", params={"day": "nope"}).status_code == 422
+    assert c.get("/api/v1/myday", params={"workspace": "garage"}).status_code == 422
+
+
+def test_myday_web_view(client):
+    c = client
+    c.post("/tasks/new", data={"title": "Ordinary task", "workspace": "private"})
+    # star it from the list
+    r = c.post("/tasks/1/plan-toggle", data={"workspace": "private"})
+    assert "star-on" in r.text
+
+    page = c.get("/", params={"workspace": "myday"}).text
+    assert "Ordinary task" in page
+    assert "My Day" in page
+
+    # unstar -> it leaves My Day
+    c.post("/tasks/1/plan-toggle", data={"workspace": "private"})
+    assert "Ordinary task" not in c.get("/", params={"workspace": "myday"}).text
+    assert "Nothing planned for today" in c.get("/", params={"workspace": "myday"}).text
+
+
+def test_task_added_while_in_myday_is_flagged(client):
+    c = client
+    c.post("/tasks/new", data={"title": "Typed in My Day", "workspace": "myday",
+                               "task_workspace": "work"})
+    task = c.get("/api/v1/tasks").json()[0]
+    assert task["planned_for"] is not None
+    assert task["workspace"] == "work"  # myday is a view, not a workspace
+    assert "Typed in My Day" in c.get("/", params={"workspace": "myday"}).text
+
+
+def test_late_tasks_marked_red(client):
+    c = client
+    c.post("/api/v1/tasks", json={"title": "Overdue thing", "due_date": "2020-01-01"})
+    page = c.get("/", params={"status": "all"}).text
+    assert "task-late" in page          # red left accent on the row
+    assert "count-late" in page         # "N late" in the counter
+
+
 def test_ingress_path_header_prefixes_urls(client):
     page = client.get("/", headers={"X-Ingress-Path": "/api/hassio_ingress/abc"})
     assert '/api/hassio_ingress/abc/static/htmx.min.js' in page.text

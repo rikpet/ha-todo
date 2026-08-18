@@ -119,6 +119,11 @@ MIGRATIONS: list[str] = [
     DROP TABLE recurring;
     ALTER TABLE recurring_new RENAME TO recurring;
     """,
+    # 5: My Day planning
+    """
+    ALTER TABLE tasks ADD COLUMN planned_for TEXT;
+    CREATE INDEX idx_tasks_planned ON tasks(planned_for);
+    """,
 ]
 
 WORKSPACES = ("private", "work")
@@ -191,16 +196,17 @@ def create_task(
     tags: list[str] | None = None,
     workspace: str = "private",
     recurring_id: int | None = None,
+    planned_for: str | None = None,
 ) -> dict[str, Any]:
     _validate_workspace(workspace)
     _validate_tags(conn, tags or [])
     now = _now()
     cur = conn.execute(
         """INSERT INTO tasks (title, description, priority, due_date, tags, workspace,
-                              recurring_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                              recurring_id, planned_for, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (title, description, priority, due_date, json.dumps(tags or []), workspace,
-         recurring_id, now, now),
+         recurring_id, planned_for, now, now),
     )
     conn.commit()
     return get_task(conn, cur.lastrowid)
@@ -255,7 +261,8 @@ def list_tasks(
 
 
 def update_task(conn: sqlite3.Connection, task_id: int, **fields: Any) -> dict[str, Any] | None:
-    allowed = {"title", "description", "status", "priority", "due_date", "tags", "workspace"}
+    allowed = {"title", "description", "status", "priority", "due_date", "tags", "workspace",
+               "planned_for"}
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if "workspace" in updates:
         _validate_workspace(updates["workspace"])
@@ -264,6 +271,8 @@ def update_task(conn: sqlite3.Connection, task_id: int, **fields: Any) -> dict[s
     # due_date is nullable: allow explicit clearing via sentinel
     if fields.get("clear_due_date"):
         updates["due_date"] = None
+    if fields.get("clear_planned_for"):
+        updates["planned_for"] = None
     if not updates and "due_date" not in updates:
         return get_task(conn, task_id)
     if "tags" in updates:
@@ -287,6 +296,87 @@ def delete_task(conn: sqlite3.Connection, task_id: int) -> bool:
     cur = conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
     conn.commit()
     return cur.rowcount > 0
+
+
+# ---------- My Day ----------
+
+
+def today_iso() -> str:
+    return date.today().isoformat()
+
+
+def set_planned(
+    conn: sqlite3.Connection, task_id: int, on_date: str | None
+) -> dict[str, Any] | None:
+    """Put a task in My Day (a date) or take it out (None)."""
+    if on_date is not None:
+        date.fromisoformat(on_date)  # validate
+        return update_task(conn, task_id, planned_for=on_date)
+    return update_task(conn, task_id, clear_planned_for=True)
+
+
+def is_carried_over(task: dict[str, Any], today: str) -> bool:
+    """Planned for an earlier day and still not done."""
+    return bool(
+        task["status"] == "open" and task.get("planned_for") and task["planned_for"] < today
+    )
+
+
+def is_overdue(task: dict[str, Any], today: str) -> bool:
+    return bool(task["status"] == "open" and task.get("due_date") and task["due_date"] < today)
+
+
+def is_late(task: dict[str, Any], today: str) -> bool:
+    """Shown in red: slipped from an earlier day, or past its due date."""
+    return is_carried_over(task, today) or is_overdue(task, today)
+
+
+def in_my_day(task: dict[str, Any], today: str) -> bool:
+    planned = task.get("planned_for") is not None and task["planned_for"] <= today
+    due = task.get("due_date") is not None and task["due_date"] <= today
+    return planned or due
+
+
+def list_my_day(
+    conn: sqlite3.Connection, today: str | None = None, *, workspace: str | None = None
+) -> list[dict[str, Any]]:
+    """Everything to deal with today, across workspaces unless one is given.
+
+    Membership: flagged for today or earlier (an unfinished flag carries over
+    by itself), or due today or earlier. Tasks finished today stay visible so
+    the day reads as a whole and a mis-click can be undone.
+    """
+    today = today or today_iso()
+    params: list[Any] = [today, today, today, today, today]
+    workspace_clause = ""
+    if workspace:
+        workspace_clause = "AND workspace = ?"
+        params.append(workspace)
+    rows = conn.execute(
+        f"""
+        SELECT * FROM tasks
+        WHERE (
+            (status = 'open' AND (
+                (planned_for IS NOT NULL AND planned_for <= ?)
+                OR (due_date IS NOT NULL AND due_date <= ?)
+            ))
+            OR (status = 'done' AND substr(completed_at, 1, 10) = ? AND (
+                (planned_for IS NOT NULL AND planned_for <= ?)
+                OR (due_date IS NOT NULL AND due_date <= ?)
+            ))
+        )
+        {workspace_clause}
+        ORDER BY status = 'done',
+                 due_date IS NULL, due_date,
+                 CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
+                 id
+        """,
+        params,
+    ).fetchall()
+    tasks = [_row_to_task(r) for r in rows]
+    # late items first: they are the ones asking for attention
+    tasks.sort(key=lambda t: (t["status"] == "done", not is_late(t, today)))
+    return tasks
 
 
 # ---------- recurring rules ----------

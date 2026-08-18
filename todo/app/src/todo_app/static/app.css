@@ -16,6 +16,7 @@
     --high: #fee2e2;
     --high-text: #b91c1c;
     --shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
+    --star: #f59e0b;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -35,6 +36,7 @@
         --high: #3d1f1f;
         --high-text: #f8a0a0;
         --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+        --star: #fbbf24;
     }
 }
 
@@ -593,10 +595,41 @@ main {
     .ws-tabs span {
         padding: 0.6rem 0;
         border-radius: 8px;
-        font-size: 1rem;
+        font-size: 0.9rem;
+        white-space: nowrap;
     }
 }
 
 @media (max-width: 640px) and (prefers-color-scheme: dark) {
     .ws-tabs { box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.5); }
 }
+
+/* ---------- My Day: star flag + late (red) treatment ---------- */
+
+.icon-btn.star svg { fill: none; }
+
+.icon-btn.star-on {
+    color: var(--star);
+    opacity: 1;
+}
+
+.icon-btn.star-on svg { fill: var(--star); }
+
+/* a starred task keeps its star visible even when the row is not hovered */
+.task-actions .star-on { opacity: 1; }
+
+.task-late {
+    border-left: 3px solid var(--danger);
+    padding-left: calc(0.8rem - 3px);
+}
+
+.task-late.task-done { border-left-color: transparent; }
+
+.badge-ws {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    text-transform: capitalize;
+}
+
+.count-late { color: var(--danger); font-weight: 700; }

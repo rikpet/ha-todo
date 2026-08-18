@@ -23,35 +23,65 @@ def _conn(request: Request):
     return request.app.state.db
 
 
+MY_DAY = "myday"
+VIEWS = (MY_DAY,) + db.WORKSPACES
+
+
 def _norm_workspace(workspace: str) -> str:
+    """A real workspace to file a task in - never the My Day pseudo-view."""
     return workspace if workspace in db.WORKSPACES else db.WORKSPACES[0]
+
+
+def _norm_view(view: str) -> str:
+    return view if view in VIEWS else db.WORKSPACES[0]
 
 
 def _render_table(
     request: Request, workspace: str, status: str, tag: str, search: str, template: str
 ):
     conn = _conn(request)
-    workspace = _norm_workspace(workspace)
-    tasks = db.list_tasks(
-        conn,
-        workspace=workspace,
-        status=status if status in ("open", "done") else None,
-        tag=tag or None,
-        search=search or None,
-    )
+    view = _norm_view(workspace)
+    today = db.today_iso()
+    if view == MY_DAY:
+        # My Day spans both workspaces; its membership rules replace the
+        # status filter, but text/tag search still narrow the list.
+        tasks = db.list_my_day(conn, today)
+        if tag:
+            tasks = [t for t in tasks if tag in t["tags"]]
+        if search:
+            needle = search.lower()
+            tasks = [
+                t for t in tasks
+                if needle in t["title"].lower() or needle in t["description"].lower()
+            ]
+    else:
+        tasks = db.list_tasks(
+            conn,
+            workspace=view,
+            status=status if status in ("open", "done") else None,
+            tag=tag or None,
+            search=search or None,
+        )
     context = {
         "tasks": tasks,
         "open_count": sum(1 for t in tasks if t["status"] == "open"),
+        "late_count": sum(1 for t in tasks if db.is_late(t, today)),
         "all_tags": db.allowed_tags(conn),
         "workspaces": db.WORKSPACES,
-        "workspace": workspace,
+        "views": VIEWS,
+        "my_day": MY_DAY,
+        "workspace": view,
+        "is_my_day": view == MY_DAY,
         "status": status,
         "tag": tag,
         "search": search,
-        "today": date.today().isoformat(),
-        "recurring": db.list_recurring(conn, workspace=workspace),
+        "today": today,
+        "recurring": db.list_recurring(conn, workspace=None if view == MY_DAY else view),
         "weekday_names": db.WEEKDAY_NAMES,
         "describe": db.describe_recurring,
+        "is_late": db.is_late,
+        "is_carried_over": db.is_carried_over,
+        "in_my_day": db.in_my_day,
     }
     return templates.TemplateResponse(request, template, context)
 
@@ -104,6 +134,8 @@ def create(
                 tags=tags,
                 # fall back to the workspace being viewed, never a fixed default
                 workspace=_norm_workspace(task_workspace or workspace),
+                # typed while looking at My Day -> it is for today
+                planned_for=db.today_iso() if _norm_view(workspace) == MY_DAY else None,
             )
         except ValueError:
             pass  # stale tag checkbox after tag removal — just re-render
@@ -129,6 +161,23 @@ def toggle(
     task = _task_or_404(request, task_id)
     new_status = "open" if task["status"] == "done" else "done"
     db.update_task(_conn(request), task_id, status=new_status)
+    return _render_table(request, workspace, status, tag, search, "_task_table.html")
+
+
+@router.post("/tasks/{task_id}/plan-toggle", response_class=HTMLResponse)
+def plan_toggle(
+    request: Request,
+    task_id: int,
+    workspace: str = Form("private"),
+    status: str = Form("open"),
+    tag: str = Form(""),
+    search: str = Form(""),
+):
+    """Star / unstar a task for My Day."""
+    task = _task_or_404(request, task_id)
+    db.set_planned(
+        _conn(request), task_id, None if task["planned_for"] else db.today_iso()
+    )
     return _render_table(request, workspace, status, tag, search, "_task_table.html")
 
 

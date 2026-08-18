@@ -18,6 +18,28 @@ The web UI installs as an app-like shortcut (standalone, no browser chrome):
 
 Works the same on Android (Chrome → menu → *Add to home screen*).
 
+## My Day
+
+The **My Day** tab collects everything you mean to deal with today, from both
+workspaces:
+
+- tasks you **star** in the list (the star button on each row)
+- tasks **due today**, added automatically
+- anything **late** — overdue, or starred on an earlier day and still open
+
+Late items are shown in red with a red edge, and starred leftovers carry the
+*carried over* badge. Nothing is lost overnight: an unfinished star simply keeps
+its original date and shows up again the next day.
+
+Typing a task while My Day is open plans it for today.
+
+```bash
+todo today                 # show My Day
+todo today add 12          # star task 12 for today
+todo today rm 12           # take it out again
+todo add "Ring plumber" --today
+```
+
 ## Recurring tasks
 
 Open **Recurring tasks** at the bottom of the web UI to add a rule — daily,

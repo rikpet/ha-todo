@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0
+
+- **My Day.** A new tab showing what you plan to tackle today, across both workspaces. Star a task in the list (or `todo today add <id>`) to put it there; anything **due today lands automatically**.
+- Anything you starred but did not finish **carries over to the next day**, marked *carried over* in red. **Overdue tasks are red too** — a red edge on the row plus an "N late" counter — in every view, not just My Day.
+- A task typed while My Day is open is planned for today automatically. CLI: `todo today`, `todo today add/rm <id>`, and `todo add "..." --today`.
+
 ## 0.5.1
 
 - On phones the **Private / Work** switch now sits in a fixed bar at the bottom of the screen, always within thumb reach, with room left for the iPhone home indicator. Desktop keeps the tabs at the top.

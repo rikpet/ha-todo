@@ -26,8 +26,10 @@ class TaskCreate(BaseModel):
     due_date: str | None = None
     tags: list[str] = []
     workspace: Workspace = "private"
+    planned_for: str | None = None
 
     _check_due = field_validator("due_date")(_validate_iso_date)
+    _check_planned = field_validator("planned_for")(_validate_iso_date)
 
 
 class TaskUpdate(BaseModel):
@@ -39,8 +41,11 @@ class TaskUpdate(BaseModel):
     clear_due_date: bool = False
     tags: list[str] | None = None
     workspace: Workspace | None = None
+    planned_for: str | None = None
+    clear_planned_for: bool = False
 
     _check_due = field_validator("due_date")(_validate_iso_date)
+    _check_planned = field_validator("planned_for")(_validate_iso_date)
 
 
 class Task(BaseModel):
@@ -52,6 +57,7 @@ class Task(BaseModel):
     due_date: str | None
     tags: list[str]
     workspace: Workspace
+    planned_for: str | None = None
     recurring_id: int | None = None
     created_at: str
     updated_at: str

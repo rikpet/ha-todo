@@ -1,9 +1,9 @@
 {% set root = request.headers.get('x-ingress-path', '') %}
-<p class="task-count">{{ open_count }} open</p>
+<p class="task-count">{{ open_count }} open{% if late_count %} · <span class="count-late">{{ late_count }} late</span>{% endif %}</p>
 {% if tasks %}
 <ul class="task-list">
   {% for task in tasks %}
-  <li class="task {{ 'task-done' if task.status == 'done' }}">
+  <li class="task {{ 'task-done' if task.status == 'done' }} {{ 'task-late' if is_late(task, today) }}">
     <input type="checkbox" class="task-check" {{ 'checked' if task.status == 'done' }}
            hx-post="{{ root }}/tasks/{{ task.id }}/toggle"
            hx-include="#filters" hx-target="#task-table"
@@ -18,12 +18,23 @@
           <span class="badge">{{ task.due_date }}</span>
           {% endif %}
         {% endif %}
+        {% if is_carried_over(task, today) %}
+        <span class="badge badge-overdue" title="Planned for {{ task.planned_for }}, still not done">carried over</span>
+        {% endif %}
+        {% if is_my_day %}<span class="badge badge-ws">{{ task.workspace }}</span>{% endif %}
         {% if task.priority == 'high' %}<span class="badge badge-high">high</span>{% endif %}
         {% for t in task.tags %}<span class="badge">#{{ t }}</span>{% endfor %}
       </div>
       {% if task.description %}<div class="task-desc">{{ task.description }}</div>{% endif %}
     </div>
     <div class="task-actions">
+      <button class="icon-btn star {{ 'star-on' if task.planned_for }}"
+              title="{{ 'Remove from My Day' if task.planned_for else 'Add to My Day' }}"
+              aria-pressed="{{ 'true' if task.planned_for else 'false' }}"
+              hx-post="{{ root }}/tasks/{{ task.id }}/plan-toggle"
+              hx-include="#filters" hx-target="#task-table">
+        <svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.9 5.9 6.6.95-4.8 4.65 1.15 6.5L12 17.4 6.15 20.5 7.3 14 2.5 9.35l6.6-.95Z"/></svg>
+      </button>
       <button class="icon-btn" title="Edit"
               hx-get="{{ root }}/tasks/{{ task.id }}/edit"
               hx-target="closest li" hx-swap="outerHTML">
@@ -40,5 +51,9 @@
   {% endfor %}
 </ul>
 {% else %}
+{% if is_my_day %}
+<div class="empty">Nothing planned for today. Star a task to add it here.</div>
+{% else %}
 <div class="empty">Nothing here. Enjoy the calm.</div>
+{% endif %}
 {% endif %}

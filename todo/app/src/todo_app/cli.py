@@ -36,6 +36,7 @@ def _safe(char: str, fallback: str) -> str:
 CHECK = _safe("✓", "+")
 CROSS = _safe("✗", "x")
 DONE_MARK = _safe("✔", "x")
+STAR = _safe("★", "*")
 
 
 # ---------- config / client ----------
@@ -174,12 +175,20 @@ def _task_table(tasks: list[dict], title: str = "") -> Table:
     for t in tasks:
         done = t["status"] == "done"
         overdue = not done and t["due_date"] and t["due_date"] < today
+        carried = not done and t.get("planned_for") and t["planned_for"] < today
         prio_style = {"high": "red", "low": "dim"}.get(t["priority"], "")
+        label = t["title"]
+        if done:
+            label = f"[dim strike]{label}[/dim strike]"
+        elif overdue or carried:
+            label = f"[red]{label}[/red]"          # late: shown in red
+        if t.get("planned_for") and not done:
+            label = f"[yellow]{STAR}[/yellow] {label}"
         table.add_row(
             str(t["id"]),
             DONE_MARK if done else "",
             t.get("workspace", ""),
-            f"[dim strike]{t['title']}[/dim strike]" if done else t["title"],
+            label,
             f"[red bold]{t['due_date']}[/red bold]" if overdue else (t["due_date"] or ""),
             f"[{prio_style}]{t['priority']}[/{prio_style}]" if prio_style else t["priority"],
             ", ".join(t["tags"]),
@@ -206,6 +215,10 @@ def _show_task(t: dict) -> None:
     console.print(f"  status:   {t['status']}")
     console.print(f"  priority: {t['priority']}")
     console.print(f"  workspace: {t.get('workspace', '-')}")
+    if t.get("planned_for"):
+        late = t["planned_for"] < date.today().isoformat() and t["status"] == "open"
+        marker = "  [red](carried over)[/red]" if late else ""
+        console.print(f"  my day:   {t['planned_for']}{marker}")
     console.print(f"  due:      {t['due_date'] or '-'}")
     console.print(f"  tags:     {', '.join(t['tags']) or '-'}")
     if t["description"]:
@@ -281,6 +294,7 @@ def add(
     workspace: Optional[str] = typer.Option(
         None, "--workspace", "-w", help="private or work (default: work)"
     ),
+    my_day: bool = typer.Option(False, "--today", help="Also flag it for My Day"),
 ):
     """Add a task (to the work workspace unless -w private)."""
     prompted = title is None
@@ -315,6 +329,8 @@ def add(
         "description": description or "",
         "workspace": workspace or DEFAULT_WORKSPACE,
     }
+    if my_day:
+        payload["planned_for"] = date.today().isoformat()
     task = request("POST", "/tasks", json=payload).json()
     console.print(
         f"[green]{CHECK}[/green] Added [cyan]#{task['id']}[/cyan] {task['title']} "
@@ -483,6 +499,56 @@ def tags_rm(names: list[str] = typer.Argument(..., metavar="NAME...")):
     for name in names:
         request("DELETE", f"/tags/{name}")
         console.print(f"[green]{CHECK}[/green] Tag #{name} removed")
+
+
+# ---------- My Day ----------
+
+today_app = typer.Typer(help="My Day: what you plan to do today.", invoke_without_command=True)
+app.add_typer(today_app, name="today")
+
+
+@today_app.callback()
+def today_default(ctx: typer.Context):
+    """Show My Day when no subcommand is given."""
+    if ctx.invoked_subcommand is not None:
+        return
+    tasks = request("GET", "/myday").json()
+    if not tasks:
+        console.print(
+            '[dim]Nothing planned for today. Add one with: todo today add <id>[/dim]'
+        )
+        return
+    console.print(_task_table(tasks, title="My Day"))
+    now = date.today().isoformat()
+    late = [t for t in tasks if t["status"] == "open" and (
+        (t["due_date"] and t["due_date"] < now)
+        or (t.get("planned_for") and t["planned_for"] < now))]
+    if late:
+        console.print(f"[red]{len(late)} late[/red] - carried over or past due.")
+
+
+@today_app.command("add")
+def today_add(task_ids: Optional[list[int]] = typer.Argument(None, metavar="ID...")):
+    """Flag task(s) for today."""
+    if not task_ids:
+        task_ids = [_pick_task_id("plan for today")]
+    for task_id in task_ids:
+        task = request("POST", f"/tasks/{task_id}/plan").json()
+        console.print(
+            f"[green]{CHECK}[/green] In My Day: [cyan]#{task['id']}[/cyan] {task['title']}"
+        )
+
+
+@today_app.command("rm")
+def today_rm(task_ids: Optional[list[int]] = typer.Argument(None, metavar="ID...")):
+    """Take task(s) out of My Day."""
+    if not task_ids:
+        task_ids = [_pick_task_id("remove from today")]
+    for task_id in task_ids:
+        task = request("POST", f"/tasks/{task_id}/unplan").json()
+        console.print(
+            f"[green]{CHECK}[/green] Out of My Day: [cyan]#{task['id']}[/cyan] {task['title']}"
+        )
 
 
 # ---------- recurring rules ----------

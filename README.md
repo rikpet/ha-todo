@@ -6,6 +6,7 @@ Todo app for Home Assistant on a Raspberry Pi 5 (or any HA OS box):
 - **Web UI**: server-rendered HTMX app, embedded in the HA sidebar via Ingress
 - **CLI**: `todo` command for your laptop, talks to the same API over LAN
 - **REST API**: `/api/v1` (OpenAPI docs at `/docs`)
+- **My Day**: star what you plan to do today; due-today tasks join automatically, unfinished ones carry over in red
 - **Recurring tasks**: daily/weekly/monthly rules that create tasks automatically
 - **Workspaces**: tasks are split into *Private* and *Work*
 

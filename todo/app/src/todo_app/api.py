@@ -86,6 +86,40 @@ def delete_task(request: Request, task_id: int):
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
 
 
+# ---------- My Day ----------
+
+
+@router.get("/myday", response_model=list[Task])
+def my_day(request: Request, workspace: str | None = None, day: str | None = None):
+    """Tasks to deal with today: flagged for today or earlier, or due by today."""
+    if workspace is not None and workspace not in db.WORKSPACES:
+        raise HTTPException(
+            status_code=422, detail=f"workspace must be one of: {', '.join(db.WORKSPACES)}"
+        )
+    return db.list_my_day(get_conn(request), day, workspace=workspace)
+
+
+@router.post("/tasks/{task_id}/plan", response_model=Task)
+def plan_task(request: Request, task_id: int, day: str | None = None):
+    """Add a task to My Day (defaults to today)."""
+    try:
+        task = db.set_planned(get_conn(request), task_id, day or db.today_iso())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    return task
+
+
+@router.post("/tasks/{task_id}/unplan", response_model=Task)
+def unplan_task(request: Request, task_id: int):
+    """Remove a task from My Day."""
+    task = db.set_planned(get_conn(request), task_id, None)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    return task
+
+
 @router.get("/tags", response_model=list[str])
 def list_tags(request: Request):
     return db.allowed_tags(get_conn(request))

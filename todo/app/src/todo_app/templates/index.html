@@ -26,13 +26,15 @@
   <form id="filters" class="filters-form" hx-get="{{ root }}/tasks/table" hx-target="#task-table"
         hx-trigger="change, input delay:300ms from:[name='search']">
     <div class="segmented ws-tabs">
+      <label><input type="radio" name="workspace" value="{{ my_day }}"
+                    {% if is_my_day %}checked{% endif %}><span>My Day</span></label>
       {% for ws in workspaces %}
       <label><input type="radio" name="workspace" value="{{ ws }}"
                     {% if ws == workspace %}checked{% endif %}><span>{{ ws | capitalize }}</span></label>
       {% endfor %}
     </div>
     <div class="filters">
-      <div class="segmented">
+      <div class="segmented" {% if is_my_day %}hidden{% endif %}>
         <label><input type="radio" name="status" value="all" {% if status == 'all' %}checked{% endif %}><span>All</span></label>
         <label><input type="radio" name="status" value="open" {% if status == 'open' %}checked{% endif %}><span>Open</span></label>
         <label><input type="radio" name="status" value="done" {% if status == 'done' %}checked{% endif %}><span>Done</span></label>
@@ -53,7 +55,8 @@
       <input name="title" placeholder="Add a task…" required autocomplete="off">
       <select name="task_workspace" id="task-workspace" aria-label="Workspace for the new task">
         {% for ws in workspaces %}
-        <option value="{{ ws }}" {% if ws == workspace %}selected{% endif %}>{{ ws | capitalize }}</option>
+        <option value="{{ ws }}"
+                {% if ws == workspace or (is_my_day and loop.first) %}selected{% endif %}>{{ ws | capitalize }}</option>
         {% endfor %}
       </select>
       <button type="submit">Add</button>
@@ -166,7 +169,8 @@
   function syncWorkspace() {
     var active = document.querySelector(".ws-tabs input[name='workspace']:checked");
     var sel = document.getElementById('task-workspace');
-    if (active && sel) sel.value = active.value;
+    // 'myday' is a view, not a workspace - leave the selector alone there
+    if (active && sel && active.value !== 'myday') sel.value = active.value;
   }
 
   document.addEventListener('change', function (e) {
