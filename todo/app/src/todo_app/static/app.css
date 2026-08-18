@@ -563,3 +563,40 @@ main {
     color: var(--text-dim);
     opacity: 0.6;
 }
+
+/* ---------- mobile: workspace tabs become a fixed bottom bar ----------
+   The tabs stay inside #filters in the DOM so htmx keeps submitting the
+   selected workspace; only their position changes. */
+
+@media (max-width: 640px) {
+    main {
+        /* clear the bar plus the iPhone home indicator */
+        padding-bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
+    }
+
+    .ws-tabs {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 50;
+        margin: 0;
+        gap: 0.4rem;
+        border: none;
+        border-top: 1px solid var(--border);
+        border-radius: 0;
+        background: var(--card);
+        padding: 0.35rem 0.75rem calc(0.35rem + env(safe-area-inset-bottom, 0px));
+        box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.08);
+    }
+
+    .ws-tabs span {
+        padding: 0.6rem 0;
+        border-radius: 8px;
+        font-size: 1rem;
+    }
+}
+
+@media (max-width: 640px) and (prefers-color-scheme: dark) {
+    .ws-tabs { box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.5); }
+}

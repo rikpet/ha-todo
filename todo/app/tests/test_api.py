@@ -163,6 +163,20 @@ def test_pwa_manifest_and_icons(client):
     assert client.get("/static/icon-512.png").status_code == 200
 
 
+def test_mobile_bottom_bar_styles(client):
+    """The workspace tabs dock to the bottom on narrow screens (fixed bar)."""
+    css = client.get("/static/app.css").text
+    assert "@media (max-width: 640px)" in css
+    mobile = css.split("@media (max-width: 640px)", 1)[1]
+    assert "position: fixed" in mobile
+    assert "env(safe-area-inset-bottom" in mobile  # clears the iPhone home indicator
+    # the tabs must stay inside #filters so htmx keeps submitting the workspace
+    page = client.get("/").text
+    filters_form = page.split('id="filters"', 1)[1].split("</form>", 1)[0]
+    assert "ws-tabs" in filters_form
+    assert "viewport-fit=cover" in page
+
+
 def test_static_links_are_cache_busted(client):
     from todo_app import __version__
 

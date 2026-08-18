@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+- On phones the **Private / Work** switch now sits in a fixed bar at the bottom of the screen, always within thumb reach, with room left for the iPhone home indicator. Desktop keeps the tabs at the top.
+
 ## 0.5.0
 
 - The **Home** workspace is now called **Private**. Existing tasks and recurring rules move across automatically when the add-on starts.
