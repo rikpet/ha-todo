@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1
+
+- New `todo upgrade` command: updates the CLI itself. It reuses the source pipx recorded at install time (local clone or git URL), pulls the clone first when there is one, and reports the version before and after. `todo upgrade --check` just compares versions.
+
 ## 0.6.0
 
 - **My Day.** A new tab showing what you plan to tackle today, across both workspaces. Star a task in the list (or `todo today add <id>`) to put it there; anything **due today lands automatically**.

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
+import shutil
+import subprocess
 import sys
 import tomllib
 from datetime import date
@@ -499,6 +502,115 @@ def tags_rm(names: list[str] = typer.Argument(..., metavar="NAME...")):
     for name in names:
         request("DELETE", f"/tags/{name}")
         console.print(f"[green]{CHECK}[/green] Tag #{name} removed")
+
+
+# ---------- self-upgrade ----------
+
+
+def _pipx_source() -> str | None:
+    """The spec this CLI was installed from, as recorded by pipx.
+
+    pipx keeps it in the venv's metadata, so an upgrade reuses exactly what
+    was used originally - a local clone path or a git URL.
+    """
+    metadata = Path(sys.prefix) / "pipx_metadata.json"
+    if not metadata.exists():
+        return None
+    try:
+        data = json.loads(metadata.read_text(encoding="utf-8"))
+        return data.get("main_package", {}).get("package_or_url")
+    except (ValueError, OSError):
+        return None
+
+
+def _git_root(path: Path) -> Path | None:
+    for candidate in [path, *path.parents]:
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def _source_version(source: str) -> str | None:
+    """Version declared by a local source checkout, if we can read it."""
+    pyproject = Path(source) / "pyproject.toml"
+    if not pyproject.exists():
+        return None
+    try:
+        return tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
+    except (ValueError, OSError, KeyError):
+        return None
+
+
+@app.command()
+def upgrade(
+    check: bool = typer.Option(False, "--check", help="Compare versions without installing."),
+    source: Optional[str] = typer.Option(
+        None, "--source", help="Install from this path or git URL instead of the recorded one."
+    ),
+    pull: bool = typer.Option(
+        True, "--pull/--no-pull", help="git pull first when installed from a local clone."
+    ),
+):
+    """Update this CLI to the latest version."""
+    source = source or _pipx_source()
+    if not source:
+        _fail(
+            "Cannot tell how this CLI was installed (no pipx metadata). "
+            "Upgrade it by hand: [bold]pipx install --force <path-to>/todo/app[/bold]"
+        )
+    local = Path(source)
+    is_local = local.exists()
+
+    if is_local and pull:
+        root = _git_root(local)
+        if root:
+            console.print(f"[dim]git pull in {root}[/dim]")
+            result = subprocess.run(
+                ["git", "-C", str(root), "pull", "--ff-only"],
+                capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                last = result.stderr.strip().splitlines()
+                console.print("[yellow]![/yellow] git pull failed, using the clone as it is.")
+                if last:
+                    console.print(f"  [dim]{last[-1]}[/dim]")
+            else:
+                console.print(f"[dim]{result.stdout.strip().splitlines()[-1]}[/dim]")
+
+    available = _source_version(source) if is_local else None
+    console.print(f"installed  [bold]{__version__}[/bold]")
+    console.print(f"available  [bold]{available or 'unknown'}[/bold]  [dim]({source})[/dim]")
+
+    if check:
+        return
+    if available and available == __version__:
+        console.print(f"[green]{CHECK}[/green] Already up to date.")
+        return
+
+    pipx = shutil.which("pipx")
+    if not pipx:
+        _fail(
+            "pipx is not on PATH, so the upgrade cannot run itself. "
+            f"Run this instead: [bold]pipx install --force {source}[/bold]"
+        )
+
+    console.print("[dim]pipx install --force ...[/dim]")
+    result = subprocess.run(
+        [pipx, "install", "--force", source], capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip().splitlines()
+        console.print("[red]{}[/red] Upgrade failed:".format(CROSS))
+        for line in detail[-4:]:
+            console.print(f"  {line}")
+        # A running executable cannot be replaced on Windows; tell the user how
+        # to finish the job from a shell where the CLI is not running.
+        console.print("  Finish it from a terminal where todo is not running:")
+        console.print(f"  [bold]pipx install --force {source}[/bold]")
+        raise typer.Exit(code=1)
+
+    console.print(f"[green]{CHECK}[/green] Upgraded to [bold]{available or 'latest'}[/bold].")
+    console.print("[dim]Open a new terminal if the old version is still cached in this one.[/dim]")
 
 
 # ---------- My Day ----------

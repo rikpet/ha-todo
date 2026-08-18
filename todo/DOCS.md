@@ -89,13 +89,7 @@ Run any command without arguments (`todo add`, `todo edit`, `todo done`) to be p
 **Updating the CLI** after an add-on update:
 
 ```bash
-pipx upgrade ha-todo
-```
-
-or, if pipx reports it is already up to date:
-
-```bash
-pipx install --force "git+https://github.com/rikpet/ha-todo.git#subdirectory=todo/app"
+todo upgrade
 ```
 
 ## REST API

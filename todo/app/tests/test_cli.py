@@ -227,3 +227,71 @@ def test_no_config(monkeypatch):
     result = runner.invoke(app, ["list"])
     assert result.exit_code == 1
     assert "todo config" in result.output
+
+
+# ---------- self-upgrade ----------
+
+def test_upgrade_check_reports_versions(tmp_path, monkeypatch):
+    """--check compares the installed version against the source, installing nothing."""
+    from todo_app import __version__, cli
+
+    src = tmp_path / "app"
+    src.mkdir()
+    (src / "pyproject.toml").write_text('[project]\nname = "ha-todo"\nversion = "9.9.9"\n')
+    monkeypatch.setattr(cli, "_pipx_source", lambda: str(src))
+    called = []
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: called.append(a) or None)
+
+    result = runner.invoke(app, ["upgrade", "--check", "--no-pull"])
+    assert result.exit_code == 0
+    assert __version__ in result.output
+    assert "9.9.9" in result.output
+    assert called == []  # nothing installed
+
+
+def test_upgrade_skips_when_current(tmp_path, monkeypatch):
+    from todo_app import __version__, cli
+
+    src = tmp_path / "app"
+    src.mkdir()
+    (src / "pyproject.toml").write_text(f'[project]\nversion = "{__version__}"\n')
+    monkeypatch.setattr(cli, "_pipx_source", lambda: str(src))
+    monkeypatch.setattr(cli.shutil, "which", lambda _: "pipx")
+    calls = []
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: calls.append(a))
+
+    result = runner.invoke(app, ["upgrade", "--no-pull"])
+    assert result.exit_code == 0
+    assert "Already up to date" in result.output
+    assert calls == []
+
+
+def test_upgrade_without_pipx_metadata_explains(monkeypatch):
+    from todo_app import cli
+
+    monkeypatch.setattr(cli, "_pipx_source", lambda: None)
+    result = runner.invoke(app, ["upgrade"])
+    assert result.exit_code == 1
+    assert "pipx install --force" in result.output
+
+
+def test_upgrade_reports_failure_with_manual_fallback(tmp_path, monkeypatch):
+    """A locked executable must produce advice, not a traceback."""
+    from todo_app import cli
+
+    src = tmp_path / "app"
+    src.mkdir()
+    (src / "pyproject.toml").write_text('[project]\nversion = "9.9.9"\n')
+    monkeypatch.setattr(cli, "_pipx_source", lambda: str(src))
+    monkeypatch.setattr(cli.shutil, "which", lambda _: "pipx")
+
+    class Failed:
+        returncode = 1
+        stderr = "PermissionError: [WinError 5] Access is denied"
+        stdout = ""
+
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: Failed())
+    result = runner.invoke(app, ["upgrade", "--no-pull"])
+    assert result.exit_code == 1
+    assert "Upgrade failed" in result.output
+    assert "where todo is not running" in result.output
