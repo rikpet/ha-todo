@@ -283,6 +283,35 @@ def test_myday_web_view(client):
     assert "Nothing planned for today" in c.get("/", params={"workspace": "myday"}).text
 
 
+def test_myday_respects_the_status_filter(client):
+    """Regression: My Day ignored the filter, so 'Open' still showed finished tasks."""
+    c = client
+    today = __import__("todo_app.db", fromlist=["db"]).today_iso()
+    c.post("/api/v1/tasks", json={"title": "Still open", "due_date": today})
+    finished = c.post("/api/v1/tasks", json={"title": "Already done", "due_date": today}).json()
+    c.post(f"/api/v1/tasks/{finished['id']}/complete")
+
+    open_view = c.get("/", params={"workspace": "myday", "status": "open"}).text
+    assert "Still open" in open_view
+    assert "Already done" not in open_view
+
+    done_view = c.get("/", params={"workspace": "myday", "status": "done"}).text
+    assert "Already done" in done_view
+    assert "Still open" not in done_view
+
+    all_view = c.get("/", params={"workspace": "myday", "status": "all"}).text
+    assert "Still open" in all_view and "Already done" in all_view
+
+
+def test_myday_status_filter_is_visible(client):
+    """It must not be hidden - .segmented would override the hidden attribute."""
+    page = client.get("/", params={"workspace": "myday"}).text
+    filters = page.split('class="filters"', 1)[1].split("</div>", 1)[0]
+    assert "hidden" not in filters
+    # and the guard that makes [hidden] win is in place for other uses
+    assert "[hidden] { display: none !important; }" in client.get("/static/app.css").text
+
+
 def test_task_added_while_in_myday_is_flagged(client):
     c = client
     c.post("/tasks/new", data={"title": "Typed in My Day", "workspace": "myday",

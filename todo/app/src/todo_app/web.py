@@ -43,9 +43,12 @@ def _render_table(
     view = _norm_view(workspace)
     today = db.today_iso()
     if view == MY_DAY:
-        # My Day spans both workspaces; its membership rules replace the
-        # status filter, but text/tag search still narrow the list.
+        # My Day spans both workspaces and decides membership itself, but the
+        # status / tag / search filters still narrow the result like anywhere else.
         tasks = db.list_my_day(conn, today)
+        # the status filter applies here too: "Open" must hide what is finished
+        if status in ("open", "done"):
+            tasks = [t for t in tasks if t["status"] == status]
         if tag:
             tasks = [t for t in tasks if tag in t["tags"]]
         if search:

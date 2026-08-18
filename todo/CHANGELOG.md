@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.2
+
+- Fix the **All / Open / Done** filter being ignored in My Day — completed tasks showed up even with *Open* selected. The filter now works there like everywhere else, so My Day shows only open items by default and *Done* reviews what you finished today.
+- `todo today` matches: open by default, `--all` to include what you finished, `--done` for only those.
+
 ## 0.6.1
 
 - New `todo upgrade` command: updates the CLI itself. It reuses the source pipx recorded at install time (local clone or git URL), pulls the clone first when there is one, and reports the version before and after. `todo upgrade --check` just compares versions.

@@ -619,12 +619,21 @@ today_app = typer.Typer(help="My Day: what you plan to do today.", invoke_withou
 app.add_typer(today_app, name="today")
 
 
-@today_app.callback()
-def today_default(ctx: typer.Context):
+@today_app.callback(invoke_without_command=True)
+def today_default(
+    ctx: typer.Context,
+    all_: bool = typer.Option(False, "--all", "-a", help="Include what you finished today"),
+    done: bool = typer.Option(False, "--done", help="Only what you finished today"),
+):
     """Show My Day when no subcommand is given."""
     if ctx.invoked_subcommand is not None:
         return
     tasks = request("GET", "/myday").json()
+    # match `todo list`: open only, unless asked otherwise
+    if done:
+        tasks = [t for t in tasks if t["status"] == "done"]
+    elif not all_:
+        tasks = [t for t in tasks if t["status"] == "open"]
     if not tasks:
         console.print(
             '[dim]Nothing planned for today. Add one with: todo today add <id>[/dim]'

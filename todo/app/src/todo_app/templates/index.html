@@ -34,7 +34,7 @@
       {% endfor %}
     </div>
     <div class="filters">
-      <div class="segmented" {% if is_my_day %}hidden{% endif %}>
+      <div class="segmented">
         <label><input type="radio" name="status" value="all" {% if status == 'all' %}checked{% endif %}><span>All</span></label>
         <label><input type="radio" name="status" value="open" {% if status == 'open' %}checked{% endif %}><span>Open</span></label>
         <label><input type="radio" name="status" value="done" {% if status == 'done' %}checked{% endif %}><span>Done</span></label>
