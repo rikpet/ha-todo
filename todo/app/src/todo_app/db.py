@@ -244,11 +244,10 @@ def list_tasks(
         params.append(due_before)
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     order = {
-        # open before done; earliest due first (nulls last); high priority first; newest last
+        # open before done; then highest priority first; then newest first
         "smart": """ORDER BY status = 'done',
-                    due_date IS NULL, due_date,
                     CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
-                    id""",
+                    id DESC""",
         "created": "ORDER BY id",
         "due": "ORDER BY due_date IS NULL, due_date, id",
         "priority": "ORDER BY CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END, id",
@@ -367,9 +366,8 @@ def list_my_day(
         )
         {workspace_clause}
         ORDER BY status = 'done',
-                 due_date IS NULL, due_date,
                  CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
-                 id
+                 id DESC
         """,
         params,
     ).fetchall()

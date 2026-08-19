@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+
+- **New task order**: highest priority first, then newest to oldest. Due dates no longer affect the order (they are still shown, and overdue ones stay red). Completed tasks remain at the bottom.
+- **No accidental zoom on phones**: pinch and double-tap zoom are off, and every input is 16px so iOS stops zooming in when you tap a field.
+- **No sideways scrolling on phones**: long titles, URLs and tag names wrap instead of widening the page.
+
 ## 0.6.2
 
 - Fix the **All / Open / Done** filter being ignored in My Day — completed tasks showed up even with *Open* selected. The filter now works there like everywhere else, so My Day shows only open items by default and *Done* reviews what you finished today.

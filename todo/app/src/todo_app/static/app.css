@@ -42,11 +42,18 @@
 
 * { box-sizing: border-box; }
 
+html, body {
+    max-width: 100%;
+    overflow-x: hidden;      /* nothing may push the page sideways */
+    overscroll-behavior-x: none;
+}
+
 /* the attribute must beat component display rules (.segmented is inline-flex) */
 [hidden] { display: none !important; }
 
 body {
     margin: 0;
+    touch-action: manipulation;   /* kills the double-tap-to-zoom delay */
     background: var(--bg);
     color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
@@ -636,3 +643,30 @@ main {
 }
 
 .count-late { color: var(--danger); font-weight: 700; }
+
+/* ---------- mobile: no zoom, no sideways scroll ---------- */
+
+@media (max-width: 640px) {
+    /* iOS zooms the page when a focused field is under 16px. Keeping every
+       control at 16px is the only reliable way to stop it. !important because
+       the component rules (.filters select, .add-more-fields input, ...) are
+       class-scoped and would otherwise win on specificity. */
+    input, select, textarea, button {
+        font-size: 16px !important;
+        max-width: 100%;
+    }
+
+    /* long words and pasted URLs must wrap, never widen the page */
+    .task-title, .task-desc, .recur-title, .empty { overflow-wrap: anywhere; }
+
+    /* rows that could exceed the viewport wrap instead */
+    .filters, .add-more-fields, .recur-add-row, .manage-tags-body, .task-meta {
+        max-width: 100%;
+    }
+
+    .filters select, .filters input[type="search"] { min-width: 0; }
+    .add-bar { flex-wrap: nowrap; }
+    .add-bar input { min-width: 0; }
+    .tag-add input { width: 100%; min-width: 0; }
+    .tag-add { flex: 1 1 100%; }
+}

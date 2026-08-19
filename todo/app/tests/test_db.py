@@ -78,6 +78,32 @@ def test_filters(conn):
     assert db.list_tasks(conn)[-1]["status"] == "done"
 
 
+def test_sort_is_priority_then_newest_first(conn):
+    """High priority on top; within a priority, the newest task leads."""
+    first = db.create_task(conn, title="Oldest normal")
+    db.create_task(conn, title="Low one", priority="low")
+    db.create_task(conn, title="Older high", priority="high")
+    db.create_task(conn, title="Newest normal")
+    db.create_task(conn, title="Newest high", priority="high")
+
+    assert [t["title"] for t in db.list_tasks(conn)] == [
+        "Newest high", "Older high",          # high, newest first
+        "Newest normal", "Oldest normal",     # then normal, newest first
+        "Low one",                            # then low
+    ]
+
+    # due dates no longer influence the order
+    db.update_task(conn, first["id"], due_date="2020-01-01")
+    assert [t["title"] for t in db.list_tasks(conn)][0] == "Newest high"
+
+
+def test_done_tasks_still_sink_to_the_bottom(conn):
+    db.create_task(conn, title="Open normal")
+    done = db.create_task(conn, title="Done high", priority="high")
+    db.update_task(conn, done["id"], status="done")
+    assert [t["title"] for t in db.list_tasks(conn)] == ["Open normal", "Done high"]
+
+
 def test_delete(conn):
     task = db.create_task(conn, title="A")
     assert db.delete_task(conn, task["id"]) is True

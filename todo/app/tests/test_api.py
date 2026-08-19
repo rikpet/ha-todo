@@ -177,6 +177,25 @@ def test_mobile_bottom_bar_styles(client):
     assert "viewport-fit=cover" in page
 
 
+def test_mobile_zoom_is_disabled(client):
+    page = client.get("/").text
+    viewport = page.split('name="viewport" content="', 1)[1].split('"', 1)[0]
+    assert "maximum-scale=1" in viewport
+    assert "user-scalable=no" in viewport
+    css = client.get("/static/app.css").text
+    # iOS auto-zooms a focused field under 16px; !important is needed to beat
+    # the class-scoped component rules
+    assert "font-size: 16px !important;" in css
+    assert "touch-action: manipulation" in css
+
+
+def test_no_horizontal_scrolling(client):
+    css = client.get("/static/app.css").text
+    head = css.split("* { box-sizing", 1)[1][:400]
+    assert "overflow-x: hidden" in head
+    assert "max-width: 100%" in head
+
+
 def test_static_links_are_cache_busted(client):
     from todo_app import __version__
 
