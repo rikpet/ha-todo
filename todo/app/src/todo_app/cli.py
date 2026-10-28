@@ -829,5 +829,76 @@ def recur_run():
         console.print(f"[green]{CHECK}[/green] Created [cyan]#{task['id']}[/cyan] {task['title']}")
 
 
+# ---------- mail import ----------
+
+mail_app = typer.Typer(help="Tasks created from mail.", invoke_without_command=True)
+app.add_typer(mail_app, name="mail")
+
+
+def _mail_request(method: str, path: str) -> httpx.Response:
+    """Like request(), but shows the server's explanation for config/mailbox problems."""
+    try:
+        with client() as c:
+            # an IMAP round trip can take longer than the usual 10 s
+            response = c.request(method, path, timeout=60)
+    except (httpx.RequestError, httpx.InvalidURL) as exc:
+        _unreachable(exc)
+    if response.status_code in (409, 502):
+        _fail(response.json().get("detail", response.text))
+    if response.is_error:
+        _fail(f"Server error {response.status_code}: {response.text}")
+    return response
+
+
+@mail_app.callback()
+def mail_default(ctx: typer.Context):
+    """Show mail import settings, the last check and recent imports."""
+    if ctx.invoked_subcommand is not None:
+        return
+    status = _mail_request("GET", "/mail").json()
+    if not status["enabled"]:
+        console.print(
+            "Mail import is [bold]off[/bold]. Turn it on in Home Assistant: "
+            "Settings > Add-ons > Todo > Configuration."
+        )
+        return
+    if status["missing"]:
+        _fail(f"Mail import is on but these add-on options are empty: "
+              f"{', '.join(status['missing'])}")
+    console.print(
+        f"Mail import is [bold]on[/bold]: {status['username']} on {status['host']}, "
+        f"folder [cyan]{status['folder']}[/cyan], every {status['poll_minutes']} min"
+    )
+    console.print(f"  Allowed senders: {', '.join(status['allowed_senders']) or 'anyone'}")
+    console.print(f"  Default workspace: {status['default_workspace']}")
+    if status["last_error"]:
+        console.print(f"  [red]{CROSS} Last check failed:[/red] {status['last_error']}")
+    elif status["last_check"]:
+        console.print(f"  [green]{CHECK}[/green] Last check: {status['last_check']}")
+    if not status["recent"]:
+        console.print("[dim]No mail imported yet.[/dim]")
+        return
+    table = Table(header_style="bold")
+    table.add_column("When")
+    table.add_column("Task", justify="right", style="cyan")
+    table.add_column("From")
+    table.add_column("Subject")
+    for entry in status["recent"]:
+        task = f"#{entry['task_id']}" if entry["task_id"] else "[dim]ignored[/dim]"
+        table.add_row(entry["imported_at"][:16].replace("T", " "), task,
+                      entry["sender"], entry["subject"])
+    console.print(table)
+
+
+@mail_app.command("check")
+def mail_check():
+    """Check the mail folder now instead of waiting for the next poll."""
+    created = _mail_request("POST", "/mail/check").json()
+    if not created:
+        console.print("[dim]No new mail.[/dim]")
+    for task in created:
+        console.print(f"[green]{CHECK}[/green] Created [cyan]#{task['id']}[/cyan] {task['title']}")
+
+
 if __name__ == "__main__":
     app()

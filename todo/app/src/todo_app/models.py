@@ -104,3 +104,27 @@ class Recurring(BaseModel):
     last_spawned_on: str | None
     created_at: str
     updated_at: str
+
+
+class MailImport(BaseModel):
+    message_id: str
+    task_id: int | None
+    sender: str
+    subject: str
+    outcome: Literal["created", "rejected"]
+    imported_at: str
+
+
+class MailStatus(BaseModel):
+    enabled: bool
+    active: bool
+    missing: list[str]
+    host: str
+    username: str
+    folder: str
+    poll_minutes: int
+    allowed_senders: list[str]
+    default_workspace: Workspace
+    last_check: str | None
+    last_error: str | None
+    recent: list[MailImport]

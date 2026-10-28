@@ -124,6 +124,18 @@ MIGRATIONS: list[str] = [
     ALTER TABLE tasks ADD COLUMN planned_for TEXT;
     CREATE INDEX idx_tasks_planned ON tasks(planned_for);
     """,
+    # 6: mail import log - one row per message seen, so a mail never becomes two tasks
+    """
+    CREATE TABLE mail_imports (
+        message_id TEXT PRIMARY KEY,
+        task_id INTEGER,
+        sender TEXT NOT NULL DEFAULT '',
+        subject TEXT NOT NULL DEFAULT '',
+        outcome TEXT NOT NULL CHECK (outcome IN ('created', 'rejected')),
+        imported_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_mail_imports_at ON mail_imports(imported_at);
+    """,
 ]
 
 WORKSPACES = ("private", "work")
@@ -592,3 +604,38 @@ def remove_allowed_tag(conn: sqlite3.Connection, name: str) -> bool:
         )
     conn.commit()
     return True
+
+
+# ---------- mail import log ----------
+
+
+def mail_seen(conn: sqlite3.Connection, message_id: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM mail_imports WHERE message_id = ?", (message_id,)
+    ).fetchone()
+    return row is not None
+
+
+def record_mail(
+    conn: sqlite3.Connection,
+    *,
+    message_id: str,
+    outcome: str,
+    task_id: int | None = None,
+    sender: str = "",
+    subject: str = "",
+) -> None:
+    conn.execute(
+        """INSERT OR IGNORE INTO mail_imports
+               (message_id, task_id, sender, subject, outcome, imported_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (message_id, task_id, sender, subject, outcome, _now()),
+    )
+    conn.commit()
+
+
+def list_mail_imports(conn: sqlite3.Connection, limit: int = 20) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT * FROM mail_imports ORDER BY imported_at DESC, rowid DESC LIMIT ?", (limit,)
+    )
+    return [dict(r) for r in rows]

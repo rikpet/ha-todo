@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 
-from . import db
-from .models import Recurring, RecurringCreate, TagCreate, Task, TaskCreate, TaskUpdate
+from . import db, mail
+from .models import (
+    MailStatus, Recurring, RecurringCreate, TagCreate, Task, TaskCreate, TaskUpdate,
+)
 
 router = APIRouter(prefix="/api/v1")
 
@@ -195,3 +197,43 @@ def delete_recurring(request: Request, rule_id: int):
 def run_recurring_now(request: Request):
     """Materialise any due recurring tasks immediately (the scheduler also does this hourly)."""
     return db.spawn_due_tasks(get_conn(request))
+
+
+# ---------- mail import ----------
+
+
+def _mail_state(request: Request) -> tuple[mail.MailConfig, dict]:
+    state = request.app.state
+    config = getattr(state, "mail_config", None) or mail.MailConfig()
+    if getattr(state, "mail_status", None) is None:
+        state.mail_status = mail.status_for(config)
+    return config, state.mail_status
+
+
+@router.get("/mail", response_model=MailStatus)
+def mail_status(request: Request):
+    """Mail import settings (password left out), last check, and recent imports."""
+    _, status = _mail_state(request)
+    return {**status, "recent": db.list_mail_imports(get_conn(request))}
+
+
+@router.post("/mail/check", response_model=list[Task])
+def mail_check(request: Request):
+    """Check the mail folder now instead of waiting for the next poll."""
+    config, status = _mail_state(request)
+    if not config.enabled:
+        raise HTTPException(
+            status_code=409, detail="Mail import is turned off in the add-on options"
+        )
+    if config.missing():
+        raise HTTPException(
+            status_code=409,
+            detail=f"Mail import needs these add-on options: {', '.join(config.missing())}",
+        )
+    try:
+        return mail.run_check(
+            get_conn(request), config, status,
+            client_factory=getattr(request.app.state, "mail_client_factory", None),
+        )
+    except mail.MailError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))

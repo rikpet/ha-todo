@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0
+
+- **Tasks from mail.** Point the add-on at a mail folder (IMAP) and every unread message there becomes a task: the subject is the title, the body the description. Set it up under *Configuration* in the add-on: server, username, app password, folder, and which senders may create tasks. See the add-on documentation for Gmail and iCloud settings.
+- **Shortcuts in the subject**: `#tag`, `!high` / `!low`, `@work` / `@private`, `@today` for My Day, and `due:2026-11-02` (or `due:today`, `due:tomorrow`). Sending to `you+work@...` files the task under Work. "Re:", "Fwd:", "VB:" and email signatures are left out.
+- A mail never turns into two tasks, even if it is marked unread again. Mail from senders not on your list is skipped and marked as read.
+- `todo mail` shows the setup, the last check and recent imports; `todo mail check` fetches right away.
+- The add-on log now shows what the app itself does — tasks created from mail or recurring rules, and why a mail check failed.
+
 ## 0.7.0
 
 - **New task order**: highest priority first, then newest to oldest. Due dates no longer affect the order (they are still shown, and overdue ones stay red). Completed tasks remain at the bottom.

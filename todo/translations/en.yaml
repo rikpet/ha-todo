@@ -1,0 +1,31 @@
+configuration:
+  log_level:
+    name: Log level
+    description: How much the add-on writes to its log.
+  mail_enabled:
+    name: Create tasks from mail
+    description: Poll an IMAP folder and turn every unread message into a task.
+  imap_host:
+    name: IMAP server
+    description: For example imap.gmail.com or imap.fastmail.com.
+  imap_port:
+    name: IMAP port
+    description: 993 for SSL (the usual), 143 for STARTTLS.
+  imap_username:
+    name: IMAP username
+    description: Usually your full email address.
+  imap_password:
+    name: IMAP password
+    description: Use an app password where the provider offers one (Gmail, iCloud, Fastmail).
+  imap_folder:
+    name: Folder
+    description: The folder (Gmail label) to watch. Use a dedicated one, not your inbox. Unread mail here becomes tasks and is marked as read.
+  mail_allowed_senders:
+    name: Allowed senders
+    description: Comma-separated addresses or @domains allowed to create tasks, e.g. "me@example.com, @work.com". Empty allows anyone who can get mail into the folder.
+  mail_default_workspace:
+    name: Default workspace
+    description: Where mail tasks land unless the subject says @work / @private or the address has +work / +private.
+  mail_poll_minutes:
+    name: Check every (minutes)
+    description: How often the folder is checked.

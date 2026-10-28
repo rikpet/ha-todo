@@ -9,6 +9,7 @@ Todo app for Home Assistant on a Raspberry Pi 5 (or any HA OS box):
 - **My Day**: star what you plan to do today; due-today tasks join automatically, unfinished ones carry over in red
 - **Recurring tasks**: daily/weekly/monthly rules that create tasks automatically
 - **Workspaces**: tasks are split into *Private* and *Work*
+- **Tasks from mail**: unread mail in an IMAP folder becomes tasks, with `#tag !high @work due:tomorrow` shortcuts in the subject
 
 No authentication on the LAN port — the app trusts your home network. Ingress access goes through your normal HA login. If you don't want LAN access, remove the port mapping in the add-on's network settings (the CLI needs it, though).
 
