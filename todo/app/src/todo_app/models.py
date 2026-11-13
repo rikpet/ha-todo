@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 Priority = Literal["low", "normal", "high"]
 Status = Literal["open", "done"]
 Workspace = Literal["private", "work"]
+ClaudeState = Literal["queued", "working", "review", "failed"]
 
 
 def _validate_iso_date(value: str | None) -> str | None:
@@ -59,6 +60,8 @@ class Task(BaseModel):
     workspace: Workspace
     planned_for: str | None = None
     recurring_id: int | None = None
+    claude_state: ClaudeState | None = None
+    claude_claimed_at: str | None = None
     created_at: str
     updated_at: str
     completed_at: str | None
@@ -128,3 +131,25 @@ class MailStatus(BaseModel):
     last_check: str | None
     last_error: str | None
     recent: list[MailImport]
+
+
+class Note(BaseModel):
+    id: int
+    task_id: int
+    author: Literal["me", "claude"]
+    body: str
+    created_at: str
+
+
+class NoteCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=100_000)
+    author: Literal["me", "claude"] = "me"
+
+
+class ClaudeHandOver(BaseModel):
+    instructions: str = Field(default="", max_length=20_000)
+
+
+class ClaudeFinish(BaseModel):
+    result: str = Field(min_length=1, max_length=200_000)
+    state: Literal["review", "failed"] = "review"

@@ -21,9 +21,12 @@ todo/app/                  the Python package
   src/todo_app/web.py      HTMX web routes (returns HTML fragments)
   src/todo_app/main.py     app factory, /health, background scheduler + mail poller
   src/todo_app/mail.py     IMAP polling: mail -> task (parsing, subject syntax, import log)
+  src/todo_app/mcp_server.py  stdio MCP server (`todo mcp`) over the REST API
+  src/todo_app/worker.py   `todo claude work`: runs Claude Code on tasks handed to Claude
+  src/todo_app/markdown.py safe Markdown subset for Claude's answers in the web UI
   src/todo_app/cli.py      the `todo` command
   templates/ static/       Jinja2 + vendored htmx/CSS (no build step, no CDN)
-  tests/                   pytest (139 tests)
+  tests/                   pytest (197 tests)
 ```
 
 ## Development
@@ -84,6 +87,24 @@ task exists, so a crash mid-pass retries instead of losing mail. Mail options
 are read from `/data/options.json` in Python (`TODO_OPTIONS_PATH` overrides it
 for local runs), not passed through `run.sh`, so the password never sits in the
 environment.
+
+**Claude work bills the subscription, never an API key.** The add-on only
+holds the queue (`tasks.claude_state`, `task_notes`); `worker.py` runs
+`claude -p` on the user's own machine. Keep its guards: strip
+`API_BILLING_VARS` from Claude's env (but keep `CLAUDE_CODE_OAUTH_TOKEN`, a
+subscription token), refuse when `claude auth status` reports API-key or cloud
+auth, never pass `--bare` (it accepts only `ANTHROPIC_API_KEY`), and use
+`--restricted` when available (ignores settings files, so no `apiKeyHelper`,
+and confines file tools to the task folder). The prompt goes in on stdin so
+Windows `.cmd` quoting cannot mangle it. Claims are atomic SQL updates;
+a claim older than `CLAUDE_STALE_MINUTES` is offered again. Claude never sets
+a task done: `finish` leaves it in `review`, and completing a task clears
+`claude_state` while keeping the notes.
+
+**The MCP server has no dependencies on purpose.** It is ~100 lines of
+newline-delimited JSON-RPC (initialize, ping, tools/list, tools/call) so the
+add-on image and Windows installs need no `mcp` package. `claude mcp list`
+checks the handshake without spending any usage.
 
 **Web routes return HTML fragments** for htmx to swap, except tag and recurring
 mutations, which return `204` + `HX-Refresh: true` because those change several

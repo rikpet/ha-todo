@@ -17,6 +17,8 @@
     --high-text: #b91c1c;
     --shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
     --star: #f59e0b;
+    --claude: #c2410c;
+    --claude-bg: #ffedd5;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -37,6 +39,8 @@
         --high-text: #f8a0a0;
         --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
         --star: #fbbf24;
+        --claude: #fdba74;
+        --claude-bg: #3b2414;
     }
 }
 
@@ -670,3 +674,89 @@ main {
     .tag-add input { width: 100%; min-width: 0; }
     .tag-add { flex: 1 1 100%; }
 }
+
+/* ---------- handing tasks to Claude ---------- */
+
+.badge-claude {
+    border: none;
+    font: inherit;
+    cursor: pointer;
+    background: var(--claude-bg);
+    color: var(--claude);
+    font-weight: 600;
+}
+
+.badge-claude-working::after { content: "\2026"; }
+.badge-claude-review { background: var(--claude); color: var(--card); }
+.badge-claude-failed { background: var(--danger); color: #fff; }
+
+.icon-btn.claude-on { color: var(--claude); opacity: 1; }
+.task-actions .claude-on { opacity: 1; }
+
+.claude-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+}
+
+.thread {
+    list-style: none;
+    margin: 0 0 0.6rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.note {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.5rem 0.7rem;
+    font-size: 0.88rem;
+}
+
+.note-claude { border-left: 3px solid var(--claude); }
+
+.note-who {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin-bottom: 0.2rem;
+}
+
+.note-who time { font-weight: 400; margin-left: 0.3rem; }
+
+.note-body {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 28rem;
+    overflow-y: auto;
+}
+
+.note-body a { color: var(--accent); }
+
+/* Claude's answers are rendered Markdown, so block elements handle the spacing */
+.note-md { white-space: normal; }
+.note-md > :first-child { margin-top: 0; }
+.note-md > :last-child { margin-bottom: 0; }
+.note-md p, .note-md ul, .note-md ol, .note-md pre, .note-md .table-wrap { margin: 0.45rem 0; }
+.note-md ul, .note-md ol { padding-left: 1.3rem; }
+.note-md h3, .note-md h4, .note-md h5, .note-md h6 { margin: 0.7rem 0 0.3rem; font-size: 0.95rem; }
+.note-md code {
+    background: var(--chip);
+    border-radius: 4px;
+    padding: 0.05rem 0.3rem;
+    font-size: 0.85em;
+}
+.note-md pre { background: var(--chip); border-radius: 6px; padding: 0.5rem; overflow-x: auto; }
+.note-md pre code { background: none; padding: 0; }
+.note-md .table-wrap { overflow-x: auto; }
+.note-md table { border-collapse: collapse; font-size: 0.85rem; }
+.note-md th, .note-md td { border: 1px solid var(--border); padding: 0.25rem 0.55rem; text-align: left; }
+.note-md th { background: var(--chip); }
+
+.task-claude .hint { margin: 0 0 0.6rem; }
+.task-claude .edit-actions { flex-wrap: wrap; }

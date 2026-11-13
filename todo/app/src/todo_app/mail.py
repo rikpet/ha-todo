@@ -238,8 +238,9 @@ def task_from_mail(
 
     Subject syntax, each word optional and anywhere in the subject:
     #tag (configured tags only), !high / !low, @work / @private,
-    @today (My Day), due:2026-11-02 / due:today / due:tomorrow.
-    Words that do not match stay in the title untouched.
+    @today (My Day), @claude (hand to Claude), due:2026-11-02 / due:today /
+    due:tomorrow. Words that do not match stay in the title untouched.
+    The extra "for_claude" key is not a create_task() field; pop it first.
     """
     today = today or date.today()
     known_tags = {tag.lower(): tag for tag in allowed_tags}
@@ -247,6 +248,7 @@ def task_from_mail(
     priority = "normal"
     workspace = _workspace_from_recipients(mail.recipients) or default_workspace
     due_date = planned_for = None
+    for_claude = False
 
     words = []
     for word in _REPLY_PREFIX.sub("", mail.subject).split():
@@ -260,6 +262,8 @@ def task_from_mail(
             workspace = lower[1:]
         elif lower in ("@today", "@idag"):
             planned_for = today.isoformat()
+        elif lower == "@claude":
+            for_claude = True
         elif lower.startswith("due:") and _parse_due(word[4:], today):
             due_date = _parse_due(word[4:], today)
         else:
@@ -283,6 +287,7 @@ def task_from_mail(
         "tags": tags,
         "workspace": workspace,
         "planned_for": planned_for,
+        "for_claude": for_claude,
     }
 
 
@@ -304,10 +309,15 @@ def import_message(
         default_workspace=config.default_workspace,
         today=today,
     )
+    for_claude = fields.pop("for_claude")
     task = db.create_task(conn, **fields)
     db.record_mail(conn, message_id=mail.message_id, outcome="created", task_id=task["id"],
                    sender=mail.sender, subject=mail.subject)
-    log.info("Task created from mail: #%s %s", task["id"], task["title"])
+    if for_claude:
+        # the mail body is already the description, which is what Claude reads first
+        task = db.give_to_claude(conn, task["id"])
+    log.info("Task created from mail%s: #%s %s", " for Claude" if for_claude else "",
+             task["id"], task["title"])
     return task
 
 

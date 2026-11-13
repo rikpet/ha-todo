@@ -153,6 +153,12 @@ def test_subject_syntax():
     assert f["planned_for"] == "2026-10-28"
 
 
+def test_at_claude_marks_mail_for_claude():
+    f = fields("Jämför elavtal @claude #hushall")
+    assert f["for_claude"] is True and f["title"] == "Jämför elavtal"
+    assert fields()["for_claude"] is False
+
+
 def test_relative_due_dates():
     assert fields("Pay rent due:today")["due_date"] == "2026-10-28"
     assert fields("Pay rent due:tomorrow")["due_date"] == "2026-10-29"
@@ -272,6 +278,14 @@ def test_check_creates_tasks_and_marks_mail_read(conn):
     log = db.list_mail_imports(conn)
     assert {(r["message_id"], r["outcome"]) for r in log} == {("<1@x>", "created"),
                                                               ("<2@x>", "created")}
+
+
+def test_mail_with_at_claude_is_queued_for_claude(conn):
+    fake = FakeImap({b"1": make_mail("Plan the trip @claude", body="Budget 3000 kr")})
+    [task] = check(conn, fake)
+    assert task["claude_state"] == "queued"
+    assert [t["id"] for t in db.claude_queue(conn)] == [task["id"]]
+    assert "Budget 3000 kr" in task["description"]
 
 
 def test_same_mail_never_becomes_two_tasks(conn):

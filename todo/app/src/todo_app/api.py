@@ -6,7 +6,8 @@ from fastapi import APIRouter, HTTPException, Request
 
 from . import db, mail
 from .models import (
-    MailStatus, Recurring, RecurringCreate, TagCreate, Task, TaskCreate, TaskUpdate,
+    ClaudeFinish, ClaudeHandOver, MailStatus, Note, NoteCreate, Recurring, RecurringCreate,
+    TagCreate, Task, TaskCreate, TaskUpdate,
 )
 
 router = APIRouter(prefix="/api/v1")
@@ -25,16 +26,22 @@ def list_tasks(
     due_before: str | None = None,
     workspace: str | None = None,
     sort: str = "smart",
+    claude: str | None = None,
 ):
     if status not in (None, "open", "done"):
         raise HTTPException(status_code=422, detail="status must be 'open' or 'done'")
+    if claude is not None and claude not in ("any", *db.CLAUDE_STATES):
+        raise HTTPException(
+            status_code=422,
+            detail=f"claude must be one of: any, {', '.join(db.CLAUDE_STATES)}",
+        )
     if workspace is not None and workspace not in db.WORKSPACES:
         raise HTTPException(
             status_code=422, detail=f"workspace must be one of: {', '.join(db.WORKSPACES)}"
         )
     return db.list_tasks(
         get_conn(request), status=status, tag=tag, search=search,
-        due_before=due_before, workspace=workspace, sort=sort,
+        due_before=due_before, workspace=workspace, sort=sort, claude=claude,
     )
 
 
@@ -237,3 +244,76 @@ def mail_check(request: Request):
         )
     except mail.MailError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
+
+
+# ---------- handing tasks to Claude ----------
+
+
+def _task_exists(request: Request, task_id: int) -> None:
+    if db.get_task(get_conn(request), task_id) is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+
+@router.get("/tasks/{task_id}/notes", response_model=list[Note])
+def list_notes(request: Request, task_id: int):
+    _task_exists(request, task_id)
+    return db.list_notes(get_conn(request), task_id)
+
+
+@router.post("/tasks/{task_id}/notes", response_model=Note, status_code=201)
+def add_note(request: Request, task_id: int, payload: NoteCreate):
+    _task_exists(request, task_id)
+    try:
+        return db.add_note(get_conn(request), task_id, payload.author, payload.body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.post("/tasks/{task_id}/claude", response_model=Task)
+def give_to_claude(request: Request, task_id: int, payload: ClaudeHandOver | None = None):
+    """Hand a task to Claude, optionally with instructions (also how you reply to it)."""
+    try:
+        task = db.give_to_claude(
+            get_conn(request), task_id, payload.instructions if payload else ""
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    return task
+
+
+@router.delete("/tasks/{task_id}/claude", response_model=Task)
+def take_back_from_claude(request: Request, task_id: int):
+    task = db.take_back_from_claude(get_conn(request), task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    return task
+
+
+@router.get("/claude/queue", response_model=list[Task])
+def claude_queue(request: Request):
+    """Tasks waiting for a Claude worker, oldest first."""
+    return db.claude_queue(get_conn(request))
+
+
+@router.post("/tasks/{task_id}/claude/claim", response_model=Task)
+def claim_for_claude(request: Request, task_id: int):
+    """A worker takes a queued task. 409 when it is no longer waiting."""
+    _task_exists(request, task_id)
+    task = db.claim_for_claude(get_conn(request), task_id)
+    if task is None:
+        raise HTTPException(status_code=409, detail=f"Task {task_id} is not waiting for Claude")
+    return task
+
+
+@router.post("/tasks/{task_id}/claude/finish", response_model=Task)
+def finish_for_claude(request: Request, task_id: int, payload: ClaudeFinish):
+    """Claude hands the task back with its answer; it then waits for your review."""
+    try:
+        task = db.finish_for_claude(get_conn(request), task_id, payload.result, payload.state)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    return task

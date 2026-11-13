@@ -136,9 +136,28 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX idx_mail_imports_at ON mail_imports(imported_at);
     """,
+    # 7: handing tasks to Claude - a state on the task, plus a note thread
+    """
+    ALTER TABLE tasks ADD COLUMN claude_state TEXT
+        CHECK (claude_state IN ('queued', 'working', 'review', 'failed'));
+    ALTER TABLE tasks ADD COLUMN claude_claimed_at TEXT;
+    CREATE INDEX idx_tasks_claude ON tasks(claude_state);
+    CREATE TABLE task_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        author TEXT NOT NULL CHECK (author IN ('me', 'claude')),
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_task_notes_task ON task_notes(task_id);
+    """,
 ]
 
 WORKSPACES = ("private", "work")
+CLAUDE_STATES = ("queued", "working", "review", "failed")
+NOTE_AUTHORS = ("me", "claude")
+# a task claimed this long ago without a result is assumed abandoned (worker crashed)
+CLAUDE_STALE_MINUTES = 180
 FREQUENCIES = ("daily", "weekly", "monthly")
 WEEKDAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
@@ -238,12 +257,18 @@ def list_tasks(
     due_before: str | None = None,
     workspace: str | None = None,
     sort: str = "smart",
+    claude: str | None = None,
 ) -> list[dict[str, Any]]:
     clauses: list[str] = []
     params: list[Any] = []
     if status:
         clauses.append("status = ?")
         params.append(status)
+    if claude == "any":
+        clauses.append("claude_state IS NOT NULL")
+    elif claude:
+        clauses.append("claude_state = ?")
+        params.append(claude)
     if workspace:
         clauses.append("workspace = ?")
         params.append(workspace)
@@ -290,6 +315,8 @@ def update_task(conn: sqlite3.Connection, task_id: int, **fields: Any) -> dict[s
         updates["tags"] = json.dumps(updates["tags"])
     if updates.get("status") == "done":
         updates["completed_at"] = _now()
+        # finishing a task ends any hand-over to Claude; the note thread stays
+        updates["claude_state"] = None
     elif updates.get("status") == "open":
         updates["completed_at"] = None
     updates["updated_at"] = _now()
@@ -639,3 +666,116 @@ def list_mail_imports(conn: sqlite3.Connection, limit: int = 20) -> list[dict[st
         "SELECT * FROM mail_imports ORDER BY imported_at DESC, rowid DESC LIMIT ?", (limit,)
     )
     return [dict(r) for r in rows]
+
+
+# ---------- handing tasks to Claude ----------
+
+
+def _validate_claude_state(state: str) -> None:
+    if state not in CLAUDE_STATES:
+        raise ValueError(f"Claude state must be one of: {', '.join(CLAUDE_STATES)}")
+
+
+def add_note(conn: sqlite3.Connection, task_id: int, author: str, body: str) -> dict[str, Any]:
+    if author not in NOTE_AUTHORS:
+        raise ValueError(f"Author must be one of: {', '.join(NOTE_AUTHORS)}")
+    body = body.strip()
+    if not body:
+        raise ValueError("A note cannot be empty")
+    cur = conn.execute(
+        "INSERT INTO task_notes (task_id, author, body, created_at) VALUES (?, ?, ?, ?)",
+        (task_id, author, body, _now()),
+    )
+    conn.commit()
+    return dict(conn.execute("SELECT * FROM task_notes WHERE id = ?", (cur.lastrowid,)).fetchone())
+
+
+def list_notes(conn: sqlite3.Connection, task_id: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT * FROM task_notes WHERE task_id = ? ORDER BY id", (task_id,)
+    )
+    return [dict(r) for r in rows]
+
+
+def _set_claude_state(
+    conn: sqlite3.Connection, task_id: int, state: str | None, *, claimed: bool = False
+) -> None:
+    conn.execute(
+        "UPDATE tasks SET claude_state = ?, claude_claimed_at = ?, updated_at = ? WHERE id = ?",
+        (state, _now() if claimed else None, _now(), task_id),
+    )
+    conn.commit()
+
+
+def give_to_claude(
+    conn: sqlite3.Connection, task_id: int, instructions: str = ""
+) -> dict[str, Any] | None:
+    """Queue a task for Claude. Also how you reply to Claude: new instructions, queued again."""
+    task = get_task(conn, task_id)
+    if task is None:
+        return None
+    if task["status"] == "done":
+        raise ValueError("The task is done - reopen it before handing it to Claude")
+    if task["claude_state"] == "working":
+        raise ValueError("Claude is working on this task right now")
+    if instructions.strip():
+        add_note(conn, task_id, "me", instructions)
+    _set_claude_state(conn, task_id, "queued")
+    return get_task(conn, task_id)
+
+
+def take_back_from_claude(conn: sqlite3.Connection, task_id: int) -> dict[str, Any] | None:
+    if get_task(conn, task_id) is None:
+        return None
+    _set_claude_state(conn, task_id, None)
+    return get_task(conn, task_id)
+
+
+def _stale_cutoff() -> str:
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=CLAUDE_STALE_MINUTES)
+    return cutoff.isoformat(timespec="seconds")
+
+
+def claude_queue(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Tasks waiting for Claude, oldest hand-over first, plus abandoned claims."""
+    rows = conn.execute(
+        """SELECT * FROM tasks
+           WHERE status = 'open' AND (
+               claude_state = 'queued'
+               OR (claude_state = 'working' AND claude_claimed_at < ?)
+           )
+           ORDER BY updated_at, id""",
+        (_stale_cutoff(),),
+    ).fetchall()
+    return [_row_to_task(r) for r in rows]
+
+
+def claim_for_claude(conn: sqlite3.Connection, task_id: int) -> dict[str, Any] | None:
+    """Mark a queued task as being worked on. None if someone else got there first."""
+    now = _now()
+    cur = conn.execute(
+        """UPDATE tasks SET claude_state = 'working', claude_claimed_at = ?, updated_at = ?
+           WHERE id = ? AND status = 'open' AND (
+               claude_state = 'queued'
+               OR (claude_state = 'working' AND claude_claimed_at < ?)
+           )""",
+        (now, now, task_id, _stale_cutoff()),
+    )
+    conn.commit()
+    return get_task(conn, task_id) if cur.rowcount else None
+
+
+def finish_for_claude(
+    conn: sqlite3.Connection, task_id: int, result: str, state: str = "review"
+) -> dict[str, Any] | None:
+    """Claude hands the task back: its answer goes on the thread, the task waits for you."""
+    if state not in ("review", "failed"):
+        raise ValueError("A finished hand-over is either 'review' or 'failed'")
+    task = get_task(conn, task_id)
+    if task is None:
+        return None
+    if task["claude_state"] not in ("queued", "working"):
+        raise ValueError("This task is not handed to Claude (taken back, or already answered)")
+    add_note(conn, task_id, "claude", result)
+    _set_claude_state(conn, task_id, state)
+    return get_task(conn, task_id)

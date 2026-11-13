@@ -135,6 +135,116 @@ todo mail check    # check right now instead of waiting
 The same is available over the API: `GET /api/v1/mail` and `POST /api/v1/mail/check`.
 Each pass handles at most 20 messages; the rest follow on the next check.
 
+## Handing tasks to Claude
+
+Press **✦** on a task to give it to Claude. Optionally say what you want
+("only fixed-price offers, as a table"); otherwise Claude goes by the title and
+description. The task then shows where it is:
+
+| Badge | Meaning |
+|-------|---------|
+| *Claude: queued* | waiting for the Claude worker |
+| *Claude is working…* | Claude is on it |
+| *Claude answered* | read the answer: **Accept & mark done**, **Send reply** to ask for changes, or **Take back** |
+| *Claude failed* | the reason is in the conversation; **Try again** when fixed |
+
+Claude never marks a task done; that is your call after reading the answer.
+Mail with `@claude` in the subject is handed to Claude straight away.
+
+### How it runs: on your machine, on your subscription
+
+The add-on only keeps the queue. The work is done by **Claude Code** on a
+computer you choose (a Raspberry Pi, your Windows PC, or both), logged in with
+**your Claude account**. Every run counts towards your Claude plan's usage
+limits, the same as using Claude Code yourself; nothing is billed per token.
+
+The worker (`todo claude work`) makes sure of that: it removes
+`ANTHROPIC_API_KEY` and similar variables before starting Claude, refuses to
+run if Claude Code reports API-key or Bedrock/Vertex login, and starts Claude
+in restricted mode so settings files cannot switch it to an API key either.
+
+### Set up a Raspberry Pi (Raspberry Pi OS, 64-bit)
+
+```bash
+sudo apt install -y pipx git
+pipx ensurepath && exec bash
+git clone https://github.com/rikpet/ha-todo.git
+pipx install ./ha-todo/todo/app
+todo config --url http://10.150.1.89:8099      # your HA box
+
+curl -fsSL https://claude.ai/install.sh | bash  # Claude Code
+claude                                          # log in: /login, choose your Claude account
+claude auth status --text                       # should say you are logged in with Claude
+todo claude work --once                         # handle anything queued, then stop
+```
+
+On a Pi without a screen, `/login` prints a link: open it on your phone or PC
+and paste the code back. Alternatively run `claude setup-token` on any computer
+and give the Pi the token as `CLAUDE_CODE_OAUTH_TOKEN`. It is a subscription
+token too.
+
+Keep it running with a systemd user service,
+`~/.config/systemd/user/todo-claude.service`:
+
+```ini
+[Unit]
+Description=ha-todo Claude worker
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/todo claude work
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now todo-claude
+sudo loginctl enable-linger $USER     # keep running when you are logged out
+journalctl --user -u todo-claude -f   # follow what Claude is doing
+```
+
+### Or run it on Windows
+
+In PowerShell, with the CLI already installed (`todo upgrade` to get this version):
+
+```powershell
+irm https://claude.ai/install.ps1 | iex    # Claude Code
+claude                                     # /login with your Claude account
+todo claude work                           # Ctrl+C to stop
+```
+
+To start it at log-in, add a Task Scheduler task that runs
+`%USERPROFILE%\.local\bin\todo.exe claude work`. The Pi and the PC can both run
+a worker: a task is only ever picked up by one of them.
+
+### What Claude may do
+
+Each task gets its own folder (`~/todo-claude/task-<id>`), and Claude's file
+tools are limited to it. Claude may search and read the web, run commands
+(for scripts or documents it is making), read and answer the task, and create
+follow-up tasks. Start the worker with `--no-commands` to leave out commands.
+Claude runs as the user that started the worker, so a separate user account on
+the Pi is a good idea. Other options: `--model sonnet`, `--timeout 30`
+(minutes per task), `--interval 60` (seconds between queue checks),
+`--workdir PATH`.
+
+### From the terminal and from Claude chats
+
+```bash
+todo claude                          # everything handed to Claude, with its state
+todo claude give 12 "as a table"     # hand over task 12 (also how you reply)
+todo claude show 12                  # the conversation
+todo claude back 12                  # take it back
+```
+
+`todo mcp` is an MCP server for your todo list. Add it to Claude Code with
+`claude mcp add todo -- todo mcp` (or to Claude Desktop's MCP settings) and you
+can ask in an ordinary chat: "work on the todos I gave you".
+
 ## Options
 
 | Option | Description |
