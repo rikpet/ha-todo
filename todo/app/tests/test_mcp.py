@@ -123,3 +123,53 @@ def test_unreachable_server_is_a_tool_error():
     with httpx.Client(base_url="http://127.0.0.1:9/api/v1", timeout=2) as dead:
         result = call(dead, "list_tags")
     assert result["isError"] and "Cannot reach" in text(result)
+
+
+# ---------- scoped to one workspace ----------
+
+def scoped(api, name, **arguments):
+    stdin = io.BytesIO(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                   "params": {"name": name, "arguments": arguments}}).encode()
+                       + b"\n")
+    stdout = io.BytesIO()
+    mcp_server.serve(api, stdin, stdout, log=lambda _: None, workspace="work")
+    return json.loads(stdout.getvalue())["result"]
+
+
+def test_scoped_server_hides_the_other_workspace(conn, api):
+    private = db.create_task(conn, title="Doctor appointment")
+    work = db.create_task(conn, title="Quarterly report", workspace="work")
+    db.give_to_claude(conn, private["id"])
+    db.give_to_claude(conn, work["id"])
+
+    queue = json.loads(text(scoped(api, "list_claude_tasks")))
+    assert [t["id"] for t in queue] == [work["id"]]
+    found = json.loads(text(scoped(api, "search_tasks", workspace="private")))
+    assert [t["title"] for t in found] == ["Quarterly report"]  # asked-for workspace ignored
+
+    for tool, extra in (("get_task", {}), ("start_task", {}), ("post_progress", {"text": "x"}),
+                        ("finish_task", {"result": "x"})):
+        result = scoped(api, tool, task_id=private["id"], **extra)
+        assert result["isError"] and "not found" in text(result), tool
+        assert "Doctor" not in text(result)
+    assert db.list_notes(conn, private["id"]) == []
+    assert db.get_task(conn, private["id"])["claude_state"] == "queued"
+
+    created = json.loads(text(scoped(api, "create_task", title="Follow-up", workspace="private")))
+    assert db.get_task(conn, created["id"])["workspace"] == "work"
+
+
+def test_scoped_server_offers_no_workspace_choice(api):
+    stdin = io.BytesIO(b"".join(json.dumps(m).encode() + b"\n" for m in (
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+    )))
+    stdout = io.BytesIO()
+    mcp_server.serve(api, stdin, stdout, log=lambda _: None, workspace="work")
+    init, tools = [json.loads(x)["result"] for x in stdout.getvalue().splitlines()]
+    assert "work tasks" in init["instructions"]
+    for tool in tools["tools"]:
+        assert "workspace" not in tool["inputSchema"]["properties"]
+    # the unscoped list is untouched
+    assert "workspace" in next(t for t in mcp_server.TOOLS
+                               if t["name"] == "create_task")["inputSchema"]["properties"]

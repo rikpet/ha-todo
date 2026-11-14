@@ -80,7 +80,7 @@ def test_command_without_shell_commands(tmp_path):
     assert cmd[-2:] == ["--model", "sonnet"]
     old = worker.build_command(cfg, "claude", tmp_path / "m.json", restricted=False)
     assert "--restricted" not in old
-    assert old[old.index("--disallowedTools") + 1] == "Bash"
+    assert "Bash" in old[old.index("--disallowedTools") + 1].split(",")
 
 
 def test_mcp_config_runs_this_python():
@@ -96,8 +96,9 @@ def test_prepare_refuses_api_key_login(api, tmp_path, monkeypatch):
     monkeypatch.setattr(worker, "find_claude", lambda name: "/usr/bin/claude")
     monkeypatch.setattr(worker, "auth_status", lambda claude, env: {
         "loggedIn": True, "apiProvider": "firstParty", "authMethod": "api_key"})
-    w = worker.Worker(worker.WorkerConfig(server_url="x"), api, log=lambda _: None)
-    with pytest.raises(worker.WorkerError):
+    w = worker.Worker(worker.WorkerConfig(server_url="http://testserver"), api,
+                      log=lambda _: None)
+    with pytest.raises(worker.WorkerError, match="API key"):
         w.prepare()
 
 
@@ -113,7 +114,7 @@ def test_prepare_passes_a_clean_env_to_auth_check(api, monkeypatch):
     monkeypatch.setattr(worker, "auth_status", status)
     monkeypatch.setattr(worker, "supports_restricted", lambda claude, env: True)
     logs = []
-    w = worker.Worker(worker.WorkerConfig(server_url="x"), api, log=logs.append)
+    w = worker.Worker(worker.WorkerConfig(server_url="http://testserver"), api, log=logs.append)
     w.prepare()
     assert "ANTHROPIC_API_KEY" not in seen["env"] and "ANTHROPIC_API_KEY" not in w.env
     assert any("Ignoring ANTHROPIC_API_KEY" in line for line in logs)
@@ -221,3 +222,57 @@ def test_interrupt_hands_task_back_as_failed(conn, api, tmp_path):
     with pytest.raises(KeyboardInterrupt):
         make_worker(api, tmp_path, runner).run_once()
     assert db.get_task(conn, task["id"])["claude_state"] == "failed"
+
+
+# ---------- one Claude account per workspace ----------
+
+def test_claude_cannot_fetch_the_todo_api_directly(tmp_path):
+    cfg = worker.WorkerConfig(server_url="http://10.150.1.89:8099")
+    cmd = worker.build_command(cfg, "claude", tmp_path / "m.json", restricted=True)
+    assert cmd[cmd.index("--disallowedTools") + 1] == "WebFetch(domain:10.150.1.89)"
+
+
+def test_mcp_config_carries_the_workspace():
+    env = worker.mcp_config("http://pi:8099", "work")["mcpServers"]["todo"]["env"]
+    assert env == {"TODO_URL": "http://pi:8099", "TODO_WORKSPACE": "work"}
+
+
+def test_worker_takes_only_its_workspace(conn, api, tmp_path):
+    private = queued(conn, "Book dentist")
+    work = db.create_task(conn, title="Sprint report", workspace="work")
+    db.give_to_claude(conn, work["id"])
+    ran = []
+
+    def runner(cmd, **kw):
+        ran.append(Path(kw["cwd"]).name)
+        return completed("ok")
+
+    assert make_worker(api, tmp_path, runner, workspace="work").run_once() == 1
+    assert ran == [f"task-{work['id']}"]
+    assert db.get_task(conn, private["id"])["claude_state"] == "queued"  # left for the other
+
+
+def test_worker_refuses_a_task_from_another_workspace(conn, api, tmp_path):
+    task = queued(conn)  # private
+    w = make_worker(api, tmp_path, lambda cmd, **kw: pytest.fail("must not run"),
+                    workspace="work")
+    assert w.run_task(task) is False
+    assert db.get_task(conn, task["id"])["claude_state"] == "queued"
+
+
+def test_old_add_on_is_refused(api, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from todo_app import main
+
+    monkeypatch.setattr(main, "__version__", "0.8.0")
+    old = TestClient(main.create_app(), base_url="http://testserver/api/v1")
+    w = worker.Worker(worker.WorkerConfig(server_url="http://testserver"), old,
+                      log=lambda _: None)
+    with pytest.raises(worker.WorkerError, match="version 0.8.0.*Update the add-on"):
+        w.check_server()
+
+
+def test_parse_version():
+    assert worker.parse_version("0.10.2") > worker.parse_version("0.9.0")
+    assert worker.parse_version("dev") == (0,)

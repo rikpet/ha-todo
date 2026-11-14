@@ -219,3 +219,22 @@ def test_web_take_back_and_done_task(conn, client):
     client.post(f"/tasks/{task['id']}/claude/give", data={"instructions": "x"})
     assert db.get_task(conn, task["id"])["claude_state"] is None
     assert client.get("/tasks/999/claude").status_code == 404
+
+
+# ---------- workspaces ----------
+
+def test_queue_and_claim_respect_workspace(conn, client):
+    private = make(conn, "private one")
+    work = db.create_task(conn, title="work one", workspace="work")
+    db.give_to_claude(conn, private["id"])
+    db.give_to_claude(conn, work["id"])
+    assert [t["id"] for t in db.claude_queue(conn, workspace="work")] == [work["id"]]
+    assert db.claim_for_claude(conn, private["id"], workspace="work") is None
+
+    r = client.post(f"/api/v1/tasks/{private['id']}/claude/claim", params={"workspace": "work"})
+    assert r.status_code == 409 and "is in private" in r.json()["detail"]
+    q = client.get("/api/v1/claude/queue", params={"workspace": "private"}).json()
+    assert [t["id"] for t in q] == [private["id"]]
+    assert client.get("/api/v1/claude/queue", params={"workspace": "home"}).status_code == 422
+    ok = client.post(f"/api/v1/tasks/{work['id']}/claude/claim", params={"workspace": "work"})
+    assert ok.json()["claude_state"] == "working"

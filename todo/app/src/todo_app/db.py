@@ -736,30 +736,51 @@ def _stale_cutoff() -> str:
     return cutoff.isoformat(timespec="seconds")
 
 
-def claude_queue(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """Tasks waiting for Claude, oldest hand-over first, plus abandoned claims."""
+def claude_queue(
+    conn: sqlite3.Connection, *, workspace: str | None = None
+) -> list[dict[str, Any]]:
+    """Tasks waiting for Claude, oldest hand-over first, plus abandoned claims.
+
+    A worker logged in to one Claude account passes its workspace, so private
+    and work tasks are only ever picked up by the account meant for them.
+    """
+    params: list[Any] = [_stale_cutoff()]
+    workspace_clause = ""
+    if workspace:
+        _validate_workspace(workspace)
+        workspace_clause = "AND workspace = ?"
+        params.append(workspace)
     rows = conn.execute(
-        """SELECT * FROM tasks
-           WHERE status = 'open' AND (
-               claude_state = 'queued'
-               OR (claude_state = 'working' AND claude_claimed_at < ?)
-           )
-           ORDER BY updated_at, id""",
-        (_stale_cutoff(),),
+        f"""SELECT * FROM tasks
+            WHERE status = 'open' AND (
+                claude_state = 'queued'
+                OR (claude_state = 'working' AND claude_claimed_at < ?)
+            ) {workspace_clause}
+            ORDER BY updated_at, id""",
+        params,
     ).fetchall()
     return [_row_to_task(r) for r in rows]
 
 
-def claim_for_claude(conn: sqlite3.Connection, task_id: int) -> dict[str, Any] | None:
-    """Mark a queued task as being worked on. None if someone else got there first."""
+def claim_for_claude(
+    conn: sqlite3.Connection, task_id: int, *, workspace: str | None = None
+) -> dict[str, Any] | None:
+    """Mark a queued task as being worked on. None if someone else got there first,
+    or if it belongs to another workspace than the claiming worker's."""
     now = _now()
+    params: list[Any] = [now, now, task_id, _stale_cutoff()]
+    workspace_clause = ""
+    if workspace:
+        _validate_workspace(workspace)
+        workspace_clause = "AND workspace = ?"
+        params.append(workspace)
     cur = conn.execute(
-        """UPDATE tasks SET claude_state = 'working', claude_claimed_at = ?, updated_at = ?
-           WHERE id = ? AND status = 'open' AND (
-               claude_state = 'queued'
-               OR (claude_state = 'working' AND claude_claimed_at < ?)
-           )""",
-        (now, now, task_id, _stale_cutoff()),
+        f"""UPDATE tasks SET claude_state = 'working', claude_claimed_at = ?, updated_at = ?
+            WHERE id = ? AND status = 'open' AND (
+                claude_state = 'queued'
+                OR (claude_state = 'working' AND claude_claimed_at < ?)
+            ) {workspace_clause}""",
+        params,
     )
     conn.commit()
     return get_task(conn, task_id) if cur.rowcount else None

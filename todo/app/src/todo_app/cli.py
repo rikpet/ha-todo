@@ -904,14 +904,20 @@ def mail_check():
 
 
 @app.command()
-def mcp():
+def mcp(
+    workspace: Optional[str] = typer.Option(
+        None, "--workspace", "-w", envvar="TODO_WORKSPACE",
+        help="Only give Claude access to this workspace (private or work)"),
+):
     """Run the MCP server Claude uses to read and answer tasks (stdio)."""
     from . import mcp_server
 
     url = load_config().get("url")
     if not url:
         _fail("No server configured. Run [bold]todo config[/bold] first.")
-    mcp_server.main(normalize_url(url))
+    if workspace is not None and workspace not in WORKSPACES:
+        _fail(f"Workspace must be one of: {', '.join(WORKSPACES)}")
+    mcp_server.main(normalize_url(url), workspace)
 
 
 claude_app = typer.Typer(help="Hand tasks to Claude, and run the Claude worker.",
@@ -1004,11 +1010,17 @@ def claude_work(
     no_commands: bool = typer.Option(
         False, "--no-commands", help="Do not let Claude run shell commands"),
     claude_bin: str = typer.Option("claude", "--claude", help="Path to Claude Code"),
+    workspace: Optional[str] = typer.Option(
+        None, "--workspace", "-w",
+        help="Only take tasks from this workspace (private or work), e.g. to keep work "
+             "tasks on your work Claude account"),
 ):
     """Run the Claude worker: pick up tasks handed to Claude and work on them.
 
     Uses Claude Code with your Claude subscription login - never an API key.
     """
+    if workspace is not None and workspace not in WORKSPACES:
+        _fail(f"Workspace must be one of: {', '.join(WORKSPACES)}")
     import time
 
     from . import worker as worker_mod
@@ -1018,7 +1030,7 @@ def claude_work(
         _fail("No server configured. Run [bold]todo config[/bold] first.")
     config = worker_mod.WorkerConfig(
         server_url=normalize_url(url), claude=claude_bin, allow_commands=not no_commands,
-        model=model, timeout_minutes=max(1, timeout),
+        model=model, timeout_minutes=max(1, timeout), workspace=workspace,
         **({"workdir": workdir} if workdir else {}),
     )
     with client() as api:

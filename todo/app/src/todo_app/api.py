@@ -291,17 +291,34 @@ def take_back_from_claude(request: Request, task_id: int):
     return task
 
 
+def _check_workspace(workspace: str | None) -> None:
+    if workspace is not None and workspace not in db.WORKSPACES:
+        raise HTTPException(
+            status_code=422, detail=f"workspace must be one of: {', '.join(db.WORKSPACES)}"
+        )
+
+
 @router.get("/claude/queue", response_model=list[Task])
-def claude_queue(request: Request):
-    """Tasks waiting for a Claude worker, oldest first."""
-    return db.claude_queue(get_conn(request))
+def claude_queue(request: Request, workspace: str | None = None):
+    """Tasks waiting for a Claude worker, oldest first; a worker passes its workspace."""
+    _check_workspace(workspace)
+    return db.claude_queue(get_conn(request), workspace=workspace)
 
 
 @router.post("/tasks/{task_id}/claude/claim", response_model=Task)
-def claim_for_claude(request: Request, task_id: int):
-    """A worker takes a queued task. 409 when it is no longer waiting."""
-    _task_exists(request, task_id)
-    task = db.claim_for_claude(get_conn(request), task_id)
+def claim_for_claude(request: Request, task_id: int, workspace: str | None = None):
+    """A worker takes a queued task. 409 when it is no longer waiting, or when it
+    belongs to another workspace than the worker's."""
+    _check_workspace(workspace)
+    task = db.get_task(get_conn(request), task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    if workspace and task["workspace"] != workspace:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task {task_id} is in {task['workspace']}, this worker handles {workspace}",
+        )
+    task = db.claim_for_claude(get_conn(request), task_id, workspace=workspace)
     if task is None:
         raise HTTPException(status_code=409, detail=f"Task {task_id} is not waiting for Claude")
     return task

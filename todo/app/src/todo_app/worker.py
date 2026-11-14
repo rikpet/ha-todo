@@ -23,6 +23,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -37,6 +38,9 @@ API_BILLING_VARS = (
     "CLAUDE_CODE_USE_VERTEX",
     "CLAUDE_CODE_USE_FOUNDRY",
 )
+
+# the add-on version that knows about workspaces in the Claude queue
+MIN_SERVER_VERSION = (0, 9, 0)
 
 FILE_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep", "WebSearch", "WebFetch"]
 COMMAND_TOOLS = ["Bash"]
@@ -70,6 +74,8 @@ class WorkerConfig:
     allow_commands: bool = True
     model: str | None = None
     timeout_minutes: int = 30
+    # the workspace this worker's Claude account is for; None takes both
+    workspace: str | None = None
 
 
 def claude_env(base: dict[str, str] | None = None) -> tuple[dict[str, str], list[str]]:
@@ -128,13 +134,23 @@ def supports_restricted(claude: str, env: dict[str, str]) -> bool:
     return "--restricted" in done.stdout
 
 
-def mcp_config(server_url: str) -> dict[str, Any]:
+def mcp_config(server_url: str, workspace: str | None = None) -> dict[str, Any]:
     """Run the MCP server with the same Python as this CLI, so no PATH lookup is needed."""
+    env = {"TODO_URL": server_url}
+    if workspace:
+        env["TODO_WORKSPACE"] = workspace
     return {"mcpServers": {"todo": {
         "command": sys.executable,
         "args": ["-m", "todo_app.cli", "mcp"],
-        "env": {"TODO_URL": server_url},
+        "env": env,
     }}}
+
+
+def parse_version(text: str) -> tuple[int, ...]:
+    try:
+        return tuple(int(part) for part in text.split(".")[:3])
+    except ValueError:
+        return (0,)
 
 
 def build_command(config: WorkerConfig, claude: str, mcp_path: Path,
@@ -143,12 +159,16 @@ def build_command(config: WorkerConfig, claude: str, mcp_path: Path,
     command = [claude, "-p", "--output-format", "json",
                "--mcp-config", str(mcp_path), "--strict-mcp-config",
                "--allowedTools", ",".join(tools + ["mcp__todo"])]
+    # Claude reaches the todo list only through the (workspace-scoped) MCP tools,
+    # not by fetching the API itself
+    denied = [f"WebFetch(domain:{urlsplit(config.server_url).hostname})"]
     if restricted:
         # only these built-in tools exist, file tools stay inside the task folder,
         # and settings files (a possible apiKeyHelper among them) are not read
         command += ["--restricted", "--tools", ",".join(tools)]
     elif not config.allow_commands:
-        command += ["--disallowedTools", "Bash"]
+        denied.append("Bash")
+    command += ["--disallowedTools", ",".join(denied)]
     if config.model:
         command += ["--model", config.model]
     return command
@@ -190,8 +210,23 @@ class Worker:
         self.env: dict[str, str] = {}
         self.restricted = False
 
+    def check_server(self) -> str:
+        """The add-on must know about workspaces, or the queue would mix them up."""
+        response = self.api.get(f"{self.config.server_url}/health")
+        response.raise_for_status()
+        version = str(response.json().get("version", "0"))
+        if parse_version(version) < MIN_SERVER_VERSION:
+            wanted = ".".join(map(str, MIN_SERVER_VERSION))
+            raise WorkerError(f"The todo add-on is version {version}; the Claude worker needs "
+                              f"{wanted} or later. Update the add-on in Home Assistant.")
+        return version
+
     def prepare(self) -> None:
         """Find Claude Code and make sure it will bill the subscription."""
+        version = self.check_server()
+        scope = (f"{self.config.workspace} tasks only" if self.config.workspace
+                 else "tasks from every workspace")
+        self.log(f"Todo add-on {version}; this worker takes {scope}.")
         self.claude = find_claude(self.config.claude)
         self.env, removed = claude_env()
         if removed:
@@ -204,13 +239,16 @@ class Worker:
             self.log("This Claude Code has no --restricted mode; update it for tighter "
                      "limits on which files Claude can touch.")
 
+    def _scope(self) -> dict[str, str]:
+        return {"workspace": self.config.workspace} if self.config.workspace else {}
+
     def queue(self) -> list[dict[str, Any]]:
-        response = self.api.get("/claude/queue")
+        response = self.api.get("/claude/queue", params=self._scope())
         response.raise_for_status()
         return response.json()
 
     def _claim(self, task_id: int) -> bool:
-        response = self.api.post(f"/tasks/{task_id}/claude/claim")
+        response = self.api.post(f"/tasks/{task_id}/claude/claim", params=self._scope())
         if response.status_code == 409:
             return False
         response.raise_for_status()
@@ -240,7 +278,10 @@ class Worker:
         self.log(f"Working on #{task_id} {task['title']} (in {workdir})")
         with tempfile.TemporaryDirectory(prefix="todo-claude-") as tmp:
             mcp_path = Path(tmp) / "mcp.json"
-            mcp_path.write_text(json.dumps(mcp_config(self.config.server_url)), encoding="utf-8")
+            mcp_path.write_text(
+                json.dumps(mcp_config(self.config.server_url, self.config.workspace)),
+                encoding="utf-8",
+            )
             command = build_command(self.config, self.claude, mcp_path, self.restricted)
             prompt = PROMPT.format(task_id=task_id, workdir=workdir)
             try:

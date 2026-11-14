@@ -221,6 +221,31 @@ To start it at log-in, add a Task Scheduler task that runs
 `%USERPROFILE%\.local\bin\todo.exe claude work`. The Pi and the PC can both run
 a worker: a task is only ever picked up by one of them.
 
+### Private and work on different Claude accounts
+
+Give each workspace its own worker, each logged in to the Claude account
+meant for it, for example:
+
+```bash
+todo claude work --workspace private    # on the Pi, logged in with your own Claude account
+```
+
+```powershell
+todo claude work --workspace work       # on the work computer, logged in with the work account
+```
+
+A worker started with `--workspace` only picks up tasks from that workspace,
+and the add-on refuses to hand it any other. Claude's todo tools are confined to
+the same workspace: it cannot list, search, read or answer the other
+workspace's tasks, and tasks it creates land in its own. A work task handed to
+Claude waits in the queue until the work computer's worker is running.
+
+This keeps each account to its own tasks in normal use. It is not a security
+boundary: the add-on's LAN port has no login, and a Claude that is allowed to
+run commands could still query it directly. (The worker does block Claude's web
+fetch tool from the add-on's address.) If that matters for work data, start the
+work worker with `--no-commands` as well.
+
 ### What Claude may do
 
 Each task gets its own folder (`~/todo-claude/task-<id>`), and Claude's file
@@ -243,7 +268,8 @@ todo claude back 12                  # take it back
 
 `todo mcp` is an MCP server for your todo list. Add it to Claude Code with
 `claude mcp add todo -- todo mcp` (or to Claude Desktop's MCP settings) and you
-can ask in an ordinary chat: "work on the todos I gave you".
+can ask in an ordinary chat: "work on the todos I gave you". Add `--workspace work`
+(or `private`) to give that Claude only one workspace.
 
 ## Options
 

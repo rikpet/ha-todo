@@ -8,6 +8,7 @@
 - Claude gets its own folder per task for files it makes, can search the web, and can suggest follow-up tasks. Use `--no-commands` if it should not run commands.
 - From the terminal: `todo claude` lists what Claude has, `todo claude give 12 "what to do"` hands a task over (and replies), `todo claude show 12` shows the conversation.
 - Mail with `@claude` in the subject goes straight to Claude.
+- **Private and work on different Claude accounts**: run `todo claude work --workspace private` on the Pi with your own account and `todo claude work --workspace work` on your work computer with the work account. Each Claude only sees and answers tasks in its own workspace.
 - `todo mcp` connects Claude Desktop or Claude Code to your list, so you can also say "work on my todos" in a normal chat.
 
 ## 0.8.0

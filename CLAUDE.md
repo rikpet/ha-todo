@@ -26,7 +26,7 @@ todo/app/                  the Python package
   src/todo_app/markdown.py safe Markdown subset for Claude's answers in the web UI
   src/todo_app/cli.py      the `todo` command
   templates/ static/       Jinja2 + vendored htmx/CSS (no build step, no CDN)
-  tests/                   pytest (197 tests)
+  tests/                   pytest (206 tests)
 ```
 
 ## Development
@@ -100,6 +100,14 @@ Windows `.cmd` quoting cannot mangle it. Claims are atomic SQL updates;
 a claim older than `CLAUDE_STALE_MINUTES` is offered again. Claude never sets
 a task done: `finish` leaves it in `review`, and completing a task clears
 `claude_state` while keeping the notes.
+
+**One Claude account per workspace is soft separation.** `--workspace` on
+the worker scopes the queue and the claim (the API checks the claim too), and
+`TODO_WORKSPACE` confines every MCP tool, with an out-of-scope task answered as
+"not found". The worker also denies `WebFetch(domain:<add-on host>)`. Bash can
+still reach the unauthenticated LAN API; that is accepted and documented. The
+worker refuses add-ons older than `MIN_SERVER_VERSION`, which would ignore the
+workspace parameter.
 
 **The MCP server has no dependencies on purpose.** It is ~100 lines of
 newline-delimited JSON-RPC (initialize, ping, tools/list, tools/call) so the
