@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import json
 import sys
+from datetime import date
 from typing import Any, BinaryIO, Callable
 
 import httpx
@@ -75,8 +76,9 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "create_task",
-        "description": "Create a new task for the user, e.g. a follow-up step you suggest. "
-                       "Tags must be ones that exist (see list_tags).",
+        "description": "Create a new task for the user, e.g. a follow-up step you suggest or "
+                       "one they asked you to add. It is shown as added by Claude. Tags must "
+                       "be ones that exist (see list_tags).",
         "inputSchema": _schema({
             "title": {"type": "string"},
             "description": {"type": "string"},
@@ -84,6 +86,11 @@ TOOLS: list[dict[str, Any]] = [
             "priority": {"type": "string", "enum": ["low", "normal", "high"]},
             "workspace": {"type": "string", "enum": ["private", "work"]},
             "tags": {"type": "array", "items": {"type": "string"}},
+            "my_day": {"type": "boolean",
+                       "description": "Put it in the user's My Day (today's plan)"},
+            "from_task_id": {"type": "integer",
+                             "description": "The task this follows from. Defaults to the "
+                                            "task you were handed, if any."},
         }, ["title"]),
     },
     {
@@ -140,7 +147,7 @@ def _call(client: httpx.Client, method: str, path: str, **kwargs) -> Any:
 
 def _compact(task: dict[str, Any]) -> dict[str, Any]:
     keys = ("id", "title", "status", "priority", "due_date", "tags", "workspace",
-            "claude_state", "created_at")
+            "planned_for", "claude_state", "created_by", "origin_task_id", "created_at")
     return {k: task.get(k) for k in keys}
 
 
@@ -153,7 +160,11 @@ def _scoped_task(client: httpx.Client, task_id: int, workspace: str | None) -> d
 
 
 def run_tool(
-    client: httpx.Client, name: str, args: dict[str, Any], workspace: str | None = None
+    client: httpx.Client,
+    name: str,
+    args: dict[str, Any],
+    workspace: str | None = None,
+    current_task: int | None = None,
 ) -> Any:
     scope = {"workspace": workspace} if workspace else {}
     if name == "list_claude_tasks":
@@ -189,6 +200,12 @@ def run_tool(
     if name == "create_task":
         payload = {k: args[k] for k in ("title", "description", "due_date", "priority",
                                         "workspace", "tags") if args.get(k) not in (None, "")}
+        payload["created_by"] = "claude"
+        origin = args.get("from_task_id") or current_task
+        if origin:
+            payload["origin_task_id"] = _scoped_task(client, int(origin), workspace)["id"]
+        if args.get("my_day"):
+            payload["planned_for"] = date.today().isoformat()
         return _compact(_call(client, "POST", "/tasks", json={**payload, **scope}))
     if name == "search_tasks":
         params = {k: args[k] for k in ("search", "status", "workspace") if args.get(k)}
@@ -200,7 +217,10 @@ def run_tool(
 
 
 def handle(
-    client: httpx.Client, message: dict[str, Any], workspace: str | None = None
+    client: httpx.Client,
+    message: dict[str, Any],
+    workspace: str | None = None,
+    current_task: int | None = None,
 ) -> dict[str, Any] | None:
     """One JSON-RPC message in, the response out (None for notifications)."""
     method = message.get("method")
@@ -228,7 +248,7 @@ def handle(
         params = message.get("params") or {}
         try:
             result = run_tool(client, params.get("name", ""), params.get("arguments") or {},
-                              workspace)
+                              workspace, current_task)
         except (ToolError, KeyError, ValueError, TypeError) as exc:
             text = str(exc) if isinstance(exc, ToolError) else f"Bad arguments: {exc!r}"
             return ok({"content": [{"type": "text", "text": text}], "isError": True})
@@ -245,9 +265,11 @@ def serve(
     stdout: BinaryIO | None = None,
     log: Callable[[str], None] = lambda text: print(text, file=sys.stderr, flush=True),
     workspace: str | None = None,
+    current_task: int | None = None,
 ) -> None:
     """Answer MCP messages until stdin closes. With a workspace, every tool is
-    confined to it: other tasks cannot be listed, read, answered or created."""
+    confined to it: other tasks cannot be listed, read, answered or created.
+    current_task is the task the worker handed over; new tasks link back to it."""
     stdin = stdin or sys.stdin.buffer
     stdout = stdout or sys.stdout.buffer
     for raw in stdin:
@@ -260,16 +282,17 @@ def serve(
                      "error": {"code": -32700, "message": "Parse error"}}
         else:
             if isinstance(message, list):  # batches are not used by Claude; answer each
-                replies = [r for m in message if (r := handle(client, m, workspace))]
+                replies = [r for m in message
+                           if (r := handle(client, m, workspace, current_task))]
                 reply = replies or None
             else:
-                reply = handle(client, message, workspace)
+                reply = handle(client, message, workspace, current_task)
         if reply is not None:
             stdout.write(json.dumps(reply, ensure_ascii=False).encode("utf-8") + b"\n")
             stdout.flush()
     log("ha-todo MCP server: stdin closed, exiting")
 
 
-def main(base_url: str, workspace: str | None = None) -> None:
+def main(base_url: str, workspace: str | None = None, current_task: int | None = None) -> None:
     with httpx.Client(base_url=f"{base_url}/api/v1", timeout=30) as client:
-        serve(client, workspace=workspace)
+        serve(client, workspace=workspace, current_task=current_task)

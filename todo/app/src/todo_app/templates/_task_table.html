@@ -27,6 +27,11 @@
                 hx-get="{{ root }}/tasks/{{ task.id }}/claude"
                 hx-target="closest li" hx-swap="outerHTML">{{ claude_labels[task.claude_state] }}</button>
         {% endif %}
+        {% if task.created_by == 'claude' %}
+        {% set origin = origin_titles.get(task.origin_task_id) %}
+        <span class="badge badge-from-claude"
+              title="Added by Claude{% if origin %} while working on “{{ origin }}”{% endif %}">✦ Claude{% if origin %} · {{ origin }}{% endif %}</span>
+        {% endif %}
         {% if is_my_day %}<span class="badge badge-ws">{{ task.workspace }}</span>{% endif %}
         {% if task.priority == 'high' %}<span class="badge badge-high">high</span>{% endif %}
         {% for t in task.tags %}<span class="badge">#{{ t }}</span>{% endfor %}

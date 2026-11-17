@@ -254,6 +254,13 @@ def _task_exists(request: Request, task_id: int) -> None:
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
 
 
+@router.get("/tasks/{task_id}/followups", response_model=list[Task])
+def list_followups(request: Request, task_id: int):
+    """Tasks Claude added while working on this one."""
+    _task_exists(request, task_id)
+    return db.list_followups(get_conn(request), task_id)
+
+
 @router.get("/tasks/{task_id}/notes", response_model=list[Note])
 def list_notes(request: Request, task_id: int):
     _task_exists(request, task_id)

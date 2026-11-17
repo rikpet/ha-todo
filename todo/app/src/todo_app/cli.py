@@ -187,6 +187,8 @@ def _task_table(tasks: list[dict], title: str = "") -> Table:
             label = f"[red]{label}[/red]"          # late: shown in red
         if t.get("planned_for") and not done:
             label = f"[yellow]{STAR}[/yellow] {label}"
+        if t.get("created_by") == "claude":
+            label = f"{label} [magenta](from Claude)[/magenta]"
         table.add_row(
             str(t["id"]),
             DONE_MARK if done else "",
@@ -917,7 +919,9 @@ def mcp(
         _fail("No server configured. Run [bold]todo config[/bold] first.")
     if workspace is not None and workspace not in WORKSPACES:
         _fail(f"Workspace must be one of: {', '.join(WORKSPACES)}")
-    mcp_server.main(normalize_url(url), workspace)
+    # set by the Claude worker: the task Claude was handed, for linking follow-ups
+    current = os.environ.get("TODO_TASK_ID", "")
+    mcp_server.main(normalize_url(url), workspace, int(current) if current.isdigit() else None)
 
 
 claude_app = typer.Typer(help="Hand tasks to Claude, and run the Claude worker.",
@@ -989,6 +993,12 @@ def claude_show(task_id: int = typer.Argument(..., metavar="ID")):
         console.print(note["body"], markup=False, highlight=False)
     if not notes:
         console.print("[dim]No messages yet.[/dim]")
+    followups = request("GET", f"/tasks/{task_id}/followups").json()
+    if followups:
+        console.print(f"\n[bold magenta]Claude added {len(followups)} task(s):[/]")
+        for f in followups:
+            mark = DONE_MARK if f["status"] == "done" else "-"
+            console.print(f"  {mark} [cyan]#{f['id']}[/cyan] {f['title']}", highlight=False)
 
 
 @claude_app.command("back")

@@ -26,7 +26,7 @@ todo/app/                  the Python package
   src/todo_app/markdown.py safe Markdown subset for Claude's answers in the web UI
   src/todo_app/cli.py      the `todo` command
   templates/ static/       Jinja2 + vendored htmx/CSS (no build step, no CDN)
-  tests/                   pytest (206 tests)
+  tests/                   pytest (214 tests)
 ```
 
 ## Development
@@ -100,6 +100,12 @@ Windows `.cmd` quoting cannot mangle it. Claims are atomic SQL updates;
 a claim older than `CLAUDE_STALE_MINUTES` is offered again. Claude never sets
 a task done: `finish` leaves it in `review`, and completing a task clears
 `claude_state` while keeping the notes.
+
+**Tasks Claude adds are marked, never mixed with yours.** `tasks.created_by`
+(`me`/`claude`, migration 8) and `origin_task_id` (the task Claude was working
+on). The MCP `create_task` always sends `created_by: claude`; its origin is
+`from_task_id`, else `TODO_TASK_ID`, which the worker sets per run. Deleting the
+origin only clears the link. `my_day` sets `planned_for` to today.
 
 **One Claude account per workspace is soft separation.** `--workspace` on
 the worker scopes the queue and the claim (the API checks the claim too), and

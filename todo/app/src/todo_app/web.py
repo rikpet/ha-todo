@@ -97,6 +97,10 @@ def _render_table(
         "in_my_day": db.in_my_day,
         # refresh the list by itself while Claude has something in hand
         "claude_active": any(t.get("claude_state") in ("queued", "working") for t in tasks),
+        # titles of the tasks Claude was working on when it added a task
+        "origin_titles": db.task_titles(
+            conn, {t["origin_task_id"] for t in tasks if t.get("origin_task_id")}
+        ),
     }
     return templates.TemplateResponse(request, template, context)
 
@@ -324,7 +328,8 @@ def claude_panel(request: Request, task_id: int):
     task = _task_or_404(request, task_id)
     return templates.TemplateResponse(
         request, "_task_claude.html",
-        {"task": task, "notes": db.list_notes(_conn(request), task_id)},
+        {"task": task, "notes": db.list_notes(_conn(request), task_id),
+         "followups": db.list_followups(_conn(request), task_id)},
     )
 
 

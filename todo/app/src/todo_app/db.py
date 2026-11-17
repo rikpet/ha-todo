@@ -151,6 +151,13 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX idx_task_notes_task ON task_notes(task_id);
     """,
+    # 8: who created a task, and - for tasks Claude adds while working - which task it came from
+    """
+    ALTER TABLE tasks ADD COLUMN created_by TEXT NOT NULL DEFAULT 'me'
+        CHECK (created_by IN ('me', 'claude'));
+    ALTER TABLE tasks ADD COLUMN origin_task_id INTEGER;
+    CREATE INDEX idx_tasks_origin ON tasks(origin_task_id);
+    """,
 ]
 
 WORKSPACES = ("private", "work")
@@ -228,16 +235,23 @@ def create_task(
     workspace: str = "private",
     recurring_id: int | None = None,
     planned_for: str | None = None,
+    created_by: str = "me",
+    origin_task_id: int | None = None,
 ) -> dict[str, Any]:
     _validate_workspace(workspace)
     _validate_tags(conn, tags or [])
+    if created_by not in NOTE_AUTHORS:
+        raise ValueError(f"created_by must be one of: {', '.join(NOTE_AUTHORS)}")
+    if origin_task_id is not None and get_task(conn, origin_task_id) is None:
+        raise ValueError(f"Task {origin_task_id} not found")
     now = _now()
     cur = conn.execute(
         """INSERT INTO tasks (title, description, priority, due_date, tags, workspace,
-                              recurring_id, planned_for, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                              recurring_id, planned_for, created_by, origin_task_id,
+                              created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (title, description, priority, due_date, json.dumps(tags or []), workspace,
-         recurring_id, planned_for, now, now),
+         recurring_id, planned_for, created_by, origin_task_id, now, now),
     )
     conn.commit()
     return get_task(conn, cur.lastrowid)
@@ -332,8 +346,26 @@ def update_task(conn: sqlite3.Connection, task_id: int, **fields: Any) -> dict[s
 
 def delete_task(conn: sqlite3.Connection, task_id: int) -> bool:
     cur = conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    # follow-ups Claude created from it stay, they just lose the link back
+    conn.execute("UPDATE tasks SET origin_task_id = NULL WHERE origin_task_id = ?", (task_id,))
     conn.commit()
     return cur.rowcount > 0
+
+
+def list_followups(conn: sqlite3.Connection, task_id: int) -> list[dict[str, Any]]:
+    """Tasks Claude added while working on this one, oldest first."""
+    rows = conn.execute(
+        "SELECT * FROM tasks WHERE origin_task_id = ? ORDER BY id", (task_id,)
+    )
+    return [_row_to_task(r) for r in rows]
+
+
+def task_titles(conn: sqlite3.Connection, task_ids: set[int]) -> dict[int, str]:
+    if not task_ids:
+        return {}
+    marks = ",".join("?" * len(task_ids))
+    rows = conn.execute(f"SELECT id, title FROM tasks WHERE id IN ({marks})", tuple(task_ids))
+    return {r["id"]: r["title"] for r in rows}
 
 
 # ---------- My Day ----------

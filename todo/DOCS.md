@@ -149,6 +149,12 @@ description. The task then shows where it is:
 | *Claude failed* | the reason is in the conversation; **Try again** when fixed |
 
 Claude never marks a task done; that is your call after reading the answer.
+
+While working, Claude may add **follow-up tasks** for steps only you can take
+("Cancel the current contract"), putting urgent ones straight into My Day.
+Tasks Claude adds carry a *✦ Claude* badge with the task they came from, and
+the conversation lists them under *Claude added …*. They are ordinary tasks:
+edit, finish or delete them as usual. `todo list` marks them *(from Claude)*.
 Mail with `@claude` in the subject is handed to Claude straight away.
 
 ### How it runs: on your machine, on your subscription
@@ -268,7 +274,8 @@ todo claude back 12                  # take it back
 
 `todo mcp` is an MCP server for your todo list. Add it to Claude Code with
 `claude mcp add todo -- todo mcp` (or to Claude Desktop's MCP settings) and you
-can ask in an ordinary chat: "work on the todos I gave you". Add `--workspace work`
+can ask in an ordinary chat: "work on the todos I gave you", or "add a task to
+call the plumber on Friday, put it in My Day". Add `--workspace work`
 (or `private`) to give that Claude only one workspace.
 
 ## Options

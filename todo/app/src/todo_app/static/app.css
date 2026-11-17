@@ -760,3 +760,26 @@ main {
 
 .task-claude .hint { margin: 0 0 0.6rem; }
 .task-claude .edit-actions { flex-wrap: wrap; }
+
+/* tasks Claude added, and the follow-up list in Claude's panel */
+.badge-from-claude {
+    background: transparent;
+    border: 1px solid var(--claude);
+    color: var(--claude);
+    max-width: 16rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.followups {
+    background: var(--card);
+    border: 1px dashed var(--claude);
+    border-radius: 8px;
+    padding: 0.5rem 0.7rem;
+    margin-bottom: 0.6rem;
+    font-size: 0.88rem;
+}
+
+.followups ul { margin: 0; padding-left: 1.2rem; }
+.followups li { margin: 0.15rem 0; }
+.followup-done { color: var(--done); text-decoration: line-through; }

@@ -276,3 +276,16 @@ def test_old_add_on_is_refused(api, monkeypatch):
 def test_parse_version():
     assert worker.parse_version("0.10.2") > worker.parse_version("0.9.0")
     assert worker.parse_version("dev") == (0,)
+
+
+def test_claude_is_told_which_task_it_was_handed(conn, api, tmp_path):
+    task = queued(conn)
+    seen = {}
+
+    def runner(cmd, **kw):
+        config = json.loads(Path(cmd[cmd.index("--mcp-config") + 1]).read_text())
+        seen.update(config["mcpServers"]["todo"]["env"])
+        return completed("ok")
+
+    make_worker(api, tmp_path, runner).run_once()
+    assert seen["TODO_TASK_ID"] == str(task["id"])

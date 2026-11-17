@@ -238,3 +238,50 @@ def test_queue_and_claim_respect_workspace(conn, client):
     assert client.get("/api/v1/claude/queue", params={"workspace": "home"}).status_code == 422
     ok = client.post(f"/api/v1/tasks/{work['id']}/claude/claim", params={"workspace": "work"})
     assert ok.json()["claude_state"] == "working"
+
+
+# ---------- tasks Claude adds ----------
+
+def test_claude_created_task_links_to_its_origin(conn):
+    origin = make(conn, "Compare power contracts")
+    added = db.create_task(conn, title="Cancel Fortum", created_by="claude",
+                           origin_task_id=origin["id"])
+    assert added["created_by"] == "claude" and added["origin_task_id"] == origin["id"]
+    assert make(conn, "mine")["created_by"] == "me"
+    assert [t["id"] for t in db.list_followups(conn, origin["id"])] == [added["id"]]
+    with pytest.raises(ValueError, match="Task 999 not found"):
+        db.create_task(conn, title="x", origin_task_id=999)
+    with pytest.raises(ValueError, match="created_by"):
+        db.create_task(conn, title="x", created_by="robot")
+
+
+def test_deleting_the_origin_keeps_the_follow_up(conn):
+    origin = make(conn)
+    added = db.create_task(conn, title="Follow-up", created_by="claude",
+                           origin_task_id=origin["id"])
+    db.delete_task(conn, origin["id"])
+    kept = db.get_task(conn, added["id"])
+    assert kept["created_by"] == "claude" and kept["origin_task_id"] is None
+
+
+def test_api_create_and_list_followups(client):
+    origin = client.post("/api/v1/tasks", json={"title": "Plan trip"}).json()
+    r = client.post("/api/v1/tasks", json={"title": "Book train", "created_by": "claude",
+                                           "origin_task_id": origin["id"]})
+    assert r.status_code == 201 and r.json()["created_by"] == "claude"
+    assert client.post("/api/v1/tasks", json={"title": "x", "origin_task_id": 999}).status_code == 422
+    followups = client.get(f"/api/v1/tasks/{origin['id']}/followups").json()
+    assert [f["title"] for f in followups] == ["Book train"]
+    assert client.get("/api/v1/tasks/999/followups").status_code == 404
+
+
+def test_web_shows_who_added_a_task(conn, client):
+    origin = make(conn, "Compare power contracts")
+    db.create_task(conn, title="Cancel Fortum", created_by="claude",
+                   origin_task_id=origin["id"], planned_for=db.today_iso())
+    db.create_task(conn, title="Asked for in chat", created_by="claude")
+    table = client.get("/tasks/table", params={"workspace": "private"}).text
+    assert "✦ Claude · Compare power contracts" in table
+    assert table.count("badge-from-claude") == 2
+    panel = client.get(f"/tasks/{origin['id']}/claude").text
+    assert "Claude added 1 task" in panel and "Cancel Fortum" in panel and "My Day" in panel

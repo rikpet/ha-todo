@@ -28,6 +28,8 @@ class TaskCreate(BaseModel):
     tags: list[str] = []
     workspace: Workspace = "private"
     planned_for: str | None = None
+    created_by: Literal["me", "claude"] = "me"
+    origin_task_id: int | None = None
 
     _check_due = field_validator("due_date")(_validate_iso_date)
     _check_planned = field_validator("planned_for")(_validate_iso_date)
@@ -62,6 +64,8 @@ class Task(BaseModel):
     recurring_id: int | None = None
     claude_state: ClaudeState | None = None
     claude_claimed_at: str | None = None
+    created_by: Literal["me", "claude"] = "me"
+    origin_task_id: int | None = None
     created_at: str
     updated_at: str
     completed_at: str | None

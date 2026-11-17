@@ -58,8 +58,9 @@ there and mention their paths in your answer.
 language the task is written in. Lead with the outcome. If you cannot do it, call \
 finish_task with failed=true and say what is missing.
 
-You may use create_task for follow-up steps the user has to take themselves. Never mark \
-tasks as done - the user does that after reviewing your answer."""
+You may use create_task for follow-up steps the user has to take themselves (my_day=true \
+for anything that should happen today); they are linked to this task automatically. Never \
+mark tasks as done - the user does that after reviewing your answer."""
 
 
 class WorkerError(Exception):
@@ -134,11 +135,15 @@ def supports_restricted(claude: str, env: dict[str, str]) -> bool:
     return "--restricted" in done.stdout
 
 
-def mcp_config(server_url: str, workspace: str | None = None) -> dict[str, Any]:
+def mcp_config(
+    server_url: str, workspace: str | None = None, task_id: int | None = None
+) -> dict[str, Any]:
     """Run the MCP server with the same Python as this CLI, so no PATH lookup is needed."""
     env = {"TODO_URL": server_url}
     if workspace:
         env["TODO_WORKSPACE"] = workspace
+    if task_id is not None:
+        env["TODO_TASK_ID"] = str(task_id)  # tasks Claude adds link back to this one
     return {"mcpServers": {"todo": {
         "command": sys.executable,
         "args": ["-m", "todo_app.cli", "mcp"],
@@ -279,7 +284,7 @@ class Worker:
         with tempfile.TemporaryDirectory(prefix="todo-claude-") as tmp:
             mcp_path = Path(tmp) / "mcp.json"
             mcp_path.write_text(
-                json.dumps(mcp_config(self.config.server_url, self.config.workspace)),
+                json.dumps(mcp_config(self.config.server_url, self.config.workspace, task_id)),
                 encoding="utf-8",
             )
             command = build_command(self.config, self.claude, mcp_path, self.restricted)

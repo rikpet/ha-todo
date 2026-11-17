@@ -22,6 +22,16 @@
   {% elif not state %}
   <p class="hint">Claude reads the title and description. Add instructions if it needs more to go on.</p>
   {% endif %}
+  {% if followups %}
+  <div class="followups">
+    <div class="note-who">Claude added {{ followups | length }} task{{ 's' if followups | length != 1 }}</div>
+    <ul>
+      {% for f in followups %}
+      <li class="{{ 'followup-done' if f.status == 'done' }}">{{ f.title }}{% if f.due_date %} <span class="badge">{{ f.due_date }}</span>{% endif %}{% if f.planned_for %} <span class="badge">My Day</span>{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
 
   {% if task.status == 'done' %}
   <p class="hint">This task is done. Reopen it to hand it to Claude again.</p>

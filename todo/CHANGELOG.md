@@ -5,6 +5,7 @@
 - **Give a task to Claude.** The new ✦ button on a task hands it to Claude, with an optional note on what you want. Claude works on it and answers right on the task; the badge shows *queued*, *working*, *answered* or *failed*, and the list refreshes by itself while Claude is busy.
 - Open the conversation to read the answer (tables, lists and links are formatted), **reply** to ask for changes, **accept** to mark the task done, or **take it back**. Claude never closes a task on its own.
 - Claude runs on **your own computer or a Raspberry Pi** through Claude Code, logged in with **your Claude subscription** — no API key, no separate bill. Start it with `todo claude work`; see *Handing tasks to Claude* in the documentation for the one-time setup.
+- **Claude can add tasks**: follow-up steps it finds while working, or tasks you ask it to add in a chat. They carry a *✦ Claude* badge naming the task they came from, can go straight into My Day, and Claude's answer lists what it added.
 - Claude gets its own folder per task for files it makes, can search the web, and can suggest follow-up tasks. Use `--no-commands` if it should not run commands.
 - From the terminal: `todo claude` lists what Claude has, `todo claude give 12 "what to do"` hands a task over (and replies), `todo claude show 12` shows the conversation.
 - Mail with `@claude` in the subject goes straight to Claude.

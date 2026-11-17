@@ -173,3 +173,37 @@ def test_scoped_server_offers_no_workspace_choice(api):
     # the unscoped list is untouched
     assert "workspace" in next(t for t in mcp_server.TOOLS
                                if t["name"] == "create_task")["inputSchema"]["properties"]
+
+
+# ---------- tasks Claude adds ----------
+
+def test_create_task_is_marked_and_can_go_to_my_day(conn, api):
+    from datetime import date
+
+    created = json.loads(text(call(api, "create_task", title="Call the plumber", my_day=True)))
+    task = db.get_task(conn, created["id"])
+    assert task["created_by"] == "claude"
+    assert task["planned_for"] == date.today().isoformat()
+    assert task["origin_task_id"] is None
+
+
+def test_create_task_links_to_the_handed_task(conn, api):
+    origin = db.create_task(conn, title="Compare power contracts")
+    stdin = io.BytesIO(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+        "name": "create_task", "arguments": {"title": "Cancel Fortum"}}}).encode() + b"\n")
+    stdout = io.BytesIO()
+    mcp_server.serve(api, stdin, stdout, log=lambda _: None, current_task=origin["id"])
+    created = json.loads(json.loads(stdout.getvalue())["result"]["content"][0]["text"])
+    assert db.get_task(conn, created["id"])["origin_task_id"] == origin["id"]
+
+    other = db.create_task(conn, title="Plan trip")
+    explicit = json.loads(text(call(api, "create_task", title="Book train",
+                                    from_task_id=other["id"])))
+    assert db.get_task(conn, explicit["id"])["origin_task_id"] == other["id"]
+
+
+def test_scoped_create_cannot_link_to_the_other_workspace(conn, api):
+    private = db.create_task(conn, title="Doctor appointment")
+    result = scoped(api, "create_task", title="x", from_task_id=private["id"])
+    assert result["isError"] and "not found" in text(result)
+    assert len(db.list_tasks(conn)) == 1
