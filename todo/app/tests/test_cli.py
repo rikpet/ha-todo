@@ -295,3 +295,56 @@ def test_upgrade_reports_failure_with_manual_fallback(tmp_path, monkeypatch):
     assert result.exit_code == 1
     assert "Upgrade failed" in result.output
     assert "where todo is not running" in result.output
+
+
+# ---------- mail ----------
+
+MAIL_STATUS = {
+    "enabled": True, "active": True, "missing": [], "host": "imap.gmail.com",
+    "username": "me@gmail.com", "folder": "Todo", "poll_minutes": 5,
+    "allowed_senders": ["me@gmail.com"], "default_workspace": "private",
+    "last_check": "2026-10-28T12:00:00+00:00", "last_error": None,
+    "recent": [
+        {"message_id": "<1@x>", "task_id": 7, "sender": "me@gmail.com", "subject": "Buy milk",
+         "outcome": "created", "imported_at": "2026-10-28T12:00:00+00:00"},
+        {"message_id": "<2@x>", "task_id": None, "sender": "spam@spam.com", "subject": "Win",
+         "outcome": "rejected", "imported_at": "2026-10-28T11:00:00+00:00"},
+    ],
+}
+
+
+@respx.mock
+def test_mail_status():
+    respx.get(f"{BASE}/mail").mock(return_value=Response(200, json=MAIL_STATUS))
+    result = runner.invoke(app, ["mail"])
+    assert result.exit_code == 0
+    assert "folder Todo" in result.output
+    assert "#7" in result.output and "ignored" in result.output
+
+
+@respx.mock
+def test_mail_status_when_off():
+    respx.get(f"{BASE}/mail").mock(
+        return_value=Response(200, json={**MAIL_STATUS, "enabled": False, "active": False})
+    )
+    result = runner.invoke(app, ["mail"])
+    assert result.exit_code == 0
+    assert "off" in result.output
+
+
+@respx.mock
+def test_mail_check_lists_created_tasks():
+    respx.post(f"{BASE}/mail/check").mock(return_value=Response(200, json=[{**TASK, "id": 9}]))
+    result = runner.invoke(app, ["mail", "check"])
+    assert result.exit_code == 0
+    assert "#9" in result.output and "Buy milk" in result.output
+
+
+@respx.mock
+def test_mail_check_shows_server_explanation():
+    respx.post(f"{BASE}/mail/check").mock(
+        return_value=Response(502, json={"detail": "Login failed for me@gmail.com: bad creds"})
+    )
+    result = runner.invoke(app, ["mail", "check"])
+    assert result.exit_code == 1
+    assert "Login failed for me@gmail.com" in result.output

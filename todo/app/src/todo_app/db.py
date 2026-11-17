@@ -124,9 +124,47 @@ MIGRATIONS: list[str] = [
     ALTER TABLE tasks ADD COLUMN planned_for TEXT;
     CREATE INDEX idx_tasks_planned ON tasks(planned_for);
     """,
+    # 6: mail import log - one row per message seen, so a mail never becomes two tasks
+    """
+    CREATE TABLE mail_imports (
+        message_id TEXT PRIMARY KEY,
+        task_id INTEGER,
+        sender TEXT NOT NULL DEFAULT '',
+        subject TEXT NOT NULL DEFAULT '',
+        outcome TEXT NOT NULL CHECK (outcome IN ('created', 'rejected')),
+        imported_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_mail_imports_at ON mail_imports(imported_at);
+    """,
+    # 7: handing tasks to Claude - a state on the task, plus a note thread
+    """
+    ALTER TABLE tasks ADD COLUMN claude_state TEXT
+        CHECK (claude_state IN ('queued', 'working', 'review', 'failed'));
+    ALTER TABLE tasks ADD COLUMN claude_claimed_at TEXT;
+    CREATE INDEX idx_tasks_claude ON tasks(claude_state);
+    CREATE TABLE task_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        author TEXT NOT NULL CHECK (author IN ('me', 'claude')),
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_task_notes_task ON task_notes(task_id);
+    """,
+    # 8: who created a task, and - for tasks Claude adds while working - which task it came from
+    """
+    ALTER TABLE tasks ADD COLUMN created_by TEXT NOT NULL DEFAULT 'me'
+        CHECK (created_by IN ('me', 'claude'));
+    ALTER TABLE tasks ADD COLUMN origin_task_id INTEGER;
+    CREATE INDEX idx_tasks_origin ON tasks(origin_task_id);
+    """,
 ]
 
 WORKSPACES = ("private", "work")
+CLAUDE_STATES = ("queued", "working", "review", "failed")
+NOTE_AUTHORS = ("me", "claude")
+# a task claimed this long ago without a result is assumed abandoned (worker crashed)
+CLAUDE_STALE_MINUTES = 180
 FREQUENCIES = ("daily", "weekly", "monthly")
 WEEKDAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
@@ -197,16 +235,23 @@ def create_task(
     workspace: str = "private",
     recurring_id: int | None = None,
     planned_for: str | None = None,
+    created_by: str = "me",
+    origin_task_id: int | None = None,
 ) -> dict[str, Any]:
     _validate_workspace(workspace)
     _validate_tags(conn, tags or [])
+    if created_by not in NOTE_AUTHORS:
+        raise ValueError(f"created_by must be one of: {', '.join(NOTE_AUTHORS)}")
+    if origin_task_id is not None and get_task(conn, origin_task_id) is None:
+        raise ValueError(f"Task {origin_task_id} not found")
     now = _now()
     cur = conn.execute(
         """INSERT INTO tasks (title, description, priority, due_date, tags, workspace,
-                              recurring_id, planned_for, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                              recurring_id, planned_for, created_by, origin_task_id,
+                              created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (title, description, priority, due_date, json.dumps(tags or []), workspace,
-         recurring_id, planned_for, now, now),
+         recurring_id, planned_for, created_by, origin_task_id, now, now),
     )
     conn.commit()
     return get_task(conn, cur.lastrowid)
@@ -226,12 +271,18 @@ def list_tasks(
     due_before: str | None = None,
     workspace: str | None = None,
     sort: str = "smart",
+    claude: str | None = None,
 ) -> list[dict[str, Any]]:
     clauses: list[str] = []
     params: list[Any] = []
     if status:
         clauses.append("status = ?")
         params.append(status)
+    if claude == "any":
+        clauses.append("claude_state IS NOT NULL")
+    elif claude:
+        clauses.append("claude_state = ?")
+        params.append(claude)
     if workspace:
         clauses.append("workspace = ?")
         params.append(workspace)
@@ -278,6 +329,8 @@ def update_task(conn: sqlite3.Connection, task_id: int, **fields: Any) -> dict[s
         updates["tags"] = json.dumps(updates["tags"])
     if updates.get("status") == "done":
         updates["completed_at"] = _now()
+        # finishing a task ends any hand-over to Claude; the note thread stays
+        updates["claude_state"] = None
     elif updates.get("status") == "open":
         updates["completed_at"] = None
     updates["updated_at"] = _now()
@@ -293,8 +346,26 @@ def update_task(conn: sqlite3.Connection, task_id: int, **fields: Any) -> dict[s
 
 def delete_task(conn: sqlite3.Connection, task_id: int) -> bool:
     cur = conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    # follow-ups Claude created from it stay, they just lose the link back
+    conn.execute("UPDATE tasks SET origin_task_id = NULL WHERE origin_task_id = ?", (task_id,))
     conn.commit()
     return cur.rowcount > 0
+
+
+def list_followups(conn: sqlite3.Connection, task_id: int) -> list[dict[str, Any]]:
+    """Tasks Claude added while working on this one, oldest first."""
+    rows = conn.execute(
+        "SELECT * FROM tasks WHERE origin_task_id = ? ORDER BY id", (task_id,)
+    )
+    return [_row_to_task(r) for r in rows]
+
+
+def task_titles(conn: sqlite3.Connection, task_ids: set[int]) -> dict[int, str]:
+    if not task_ids:
+        return {}
+    marks = ",".join("?" * len(task_ids))
+    rows = conn.execute(f"SELECT id, title FROM tasks WHERE id IN ({marks})", tuple(task_ids))
+    return {r["id"]: r["title"] for r in rows}
 
 
 # ---------- My Day ----------
@@ -592,3 +663,172 @@ def remove_allowed_tag(conn: sqlite3.Connection, name: str) -> bool:
         )
     conn.commit()
     return True
+
+
+# ---------- mail import log ----------
+
+
+def mail_seen(conn: sqlite3.Connection, message_id: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM mail_imports WHERE message_id = ?", (message_id,)
+    ).fetchone()
+    return row is not None
+
+
+def record_mail(
+    conn: sqlite3.Connection,
+    *,
+    message_id: str,
+    outcome: str,
+    task_id: int | None = None,
+    sender: str = "",
+    subject: str = "",
+) -> None:
+    conn.execute(
+        """INSERT OR IGNORE INTO mail_imports
+               (message_id, task_id, sender, subject, outcome, imported_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (message_id, task_id, sender, subject, outcome, _now()),
+    )
+    conn.commit()
+
+
+def list_mail_imports(conn: sqlite3.Connection, limit: int = 20) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT * FROM mail_imports ORDER BY imported_at DESC, rowid DESC LIMIT ?", (limit,)
+    )
+    return [dict(r) for r in rows]
+
+
+# ---------- handing tasks to Claude ----------
+
+
+def _validate_claude_state(state: str) -> None:
+    if state not in CLAUDE_STATES:
+        raise ValueError(f"Claude state must be one of: {', '.join(CLAUDE_STATES)}")
+
+
+def add_note(conn: sqlite3.Connection, task_id: int, author: str, body: str) -> dict[str, Any]:
+    if author not in NOTE_AUTHORS:
+        raise ValueError(f"Author must be one of: {', '.join(NOTE_AUTHORS)}")
+    body = body.strip()
+    if not body:
+        raise ValueError("A note cannot be empty")
+    cur = conn.execute(
+        "INSERT INTO task_notes (task_id, author, body, created_at) VALUES (?, ?, ?, ?)",
+        (task_id, author, body, _now()),
+    )
+    conn.commit()
+    return dict(conn.execute("SELECT * FROM task_notes WHERE id = ?", (cur.lastrowid,)).fetchone())
+
+
+def list_notes(conn: sqlite3.Connection, task_id: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT * FROM task_notes WHERE task_id = ? ORDER BY id", (task_id,)
+    )
+    return [dict(r) for r in rows]
+
+
+def _set_claude_state(
+    conn: sqlite3.Connection, task_id: int, state: str | None, *, claimed: bool = False
+) -> None:
+    conn.execute(
+        "UPDATE tasks SET claude_state = ?, claude_claimed_at = ?, updated_at = ? WHERE id = ?",
+        (state, _now() if claimed else None, _now(), task_id),
+    )
+    conn.commit()
+
+
+def give_to_claude(
+    conn: sqlite3.Connection, task_id: int, instructions: str = ""
+) -> dict[str, Any] | None:
+    """Queue a task for Claude. Also how you reply to Claude: new instructions, queued again."""
+    task = get_task(conn, task_id)
+    if task is None:
+        return None
+    if task["status"] == "done":
+        raise ValueError("The task is done - reopen it before handing it to Claude")
+    if task["claude_state"] == "working":
+        raise ValueError("Claude is working on this task right now")
+    if instructions.strip():
+        add_note(conn, task_id, "me", instructions)
+    _set_claude_state(conn, task_id, "queued")
+    return get_task(conn, task_id)
+
+
+def take_back_from_claude(conn: sqlite3.Connection, task_id: int) -> dict[str, Any] | None:
+    if get_task(conn, task_id) is None:
+        return None
+    _set_claude_state(conn, task_id, None)
+    return get_task(conn, task_id)
+
+
+def _stale_cutoff() -> str:
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=CLAUDE_STALE_MINUTES)
+    return cutoff.isoformat(timespec="seconds")
+
+
+def claude_queue(
+    conn: sqlite3.Connection, *, workspace: str | None = None
+) -> list[dict[str, Any]]:
+    """Tasks waiting for Claude, oldest hand-over first, plus abandoned claims.
+
+    A worker logged in to one Claude account passes its workspace, so private
+    and work tasks are only ever picked up by the account meant for them.
+    """
+    params: list[Any] = [_stale_cutoff()]
+    workspace_clause = ""
+    if workspace:
+        _validate_workspace(workspace)
+        workspace_clause = "AND workspace = ?"
+        params.append(workspace)
+    rows = conn.execute(
+        f"""SELECT * FROM tasks
+            WHERE status = 'open' AND (
+                claude_state = 'queued'
+                OR (claude_state = 'working' AND claude_claimed_at < ?)
+            ) {workspace_clause}
+            ORDER BY updated_at, id""",
+        params,
+    ).fetchall()
+    return [_row_to_task(r) for r in rows]
+
+
+def claim_for_claude(
+    conn: sqlite3.Connection, task_id: int, *, workspace: str | None = None
+) -> dict[str, Any] | None:
+    """Mark a queued task as being worked on. None if someone else got there first,
+    or if it belongs to another workspace than the claiming worker's."""
+    now = _now()
+    params: list[Any] = [now, now, task_id, _stale_cutoff()]
+    workspace_clause = ""
+    if workspace:
+        _validate_workspace(workspace)
+        workspace_clause = "AND workspace = ?"
+        params.append(workspace)
+    cur = conn.execute(
+        f"""UPDATE tasks SET claude_state = 'working', claude_claimed_at = ?, updated_at = ?
+            WHERE id = ? AND status = 'open' AND (
+                claude_state = 'queued'
+                OR (claude_state = 'working' AND claude_claimed_at < ?)
+            ) {workspace_clause}""",
+        params,
+    )
+    conn.commit()
+    return get_task(conn, task_id) if cur.rowcount else None
+
+
+def finish_for_claude(
+    conn: sqlite3.Connection, task_id: int, result: str, state: str = "review"
+) -> dict[str, Any] | None:
+    """Claude hands the task back: its answer goes on the thread, the task waits for you."""
+    if state not in ("review", "failed"):
+        raise ValueError("A finished hand-over is either 'review' or 'failed'")
+    task = get_task(conn, task_id)
+    if task is None:
+        return None
+    if task["claude_state"] not in ("queued", "working"):
+        raise ValueError("This task is not handed to Claude (taken back, or already answered)")
+    add_note(conn, task_id, "claude", result)
+    _set_claude_state(conn, task_id, state)
+    return get_task(conn, task_id)

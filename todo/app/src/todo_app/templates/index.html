@@ -176,6 +176,14 @@
   document.addEventListener('change', function (e) {
     if (e.target.name === 'workspace') syncWorkspace();
   });
+
+  // Note times are stored in UTC; show them in the viewer's own time.
+  document.addEventListener('htmx:afterSwap', function () {
+    document.querySelectorAll('.note-who time[datetime]').forEach(function (el) {
+      var d = new Date(el.getAttribute('datetime'));
+      if (!isNaN(d)) el.textContent = d.toLocaleString([], {dateStyle: 'short', timeStyle: 'short'});
+    });
+  });
 </script>
 </body>
 </html>

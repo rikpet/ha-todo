@@ -1,5 +1,5 @@
 name: Todo
-version: "0.7.0"
+version: "0.9.0"
 slug: todo
 description: Simple todo list with web UI, REST API and CLI access
 url: https://github.com/rikpet/ha-todo
@@ -18,5 +18,23 @@ ports_description:
 watchdog: http://[HOST]:[PORT:8099]/health
 options:
   log_level: info
+  mail_enabled: false
+  imap_host: ""
+  imap_port: 993
+  imap_username: ""
+  imap_password: ""
+  imap_folder: Todo
+  mail_allowed_senders: ""
+  mail_default_workspace: private
+  mail_poll_minutes: 5
 schema:
   log_level: list(debug|info|warning|error)
+  mail_enabled: bool
+  imap_host: str?
+  imap_port: port
+  imap_username: str?
+  imap_password: password?
+  imap_folder: str
+  mail_allowed_senders: str?
+  mail_default_workspace: list(private|work)
+  mail_poll_minutes: int(1,1440)

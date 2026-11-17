@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 
-from . import db
-from .models import Recurring, RecurringCreate, TagCreate, Task, TaskCreate, TaskUpdate
+from . import db, mail
+from .models import (
+    ClaudeFinish, ClaudeHandOver, MailStatus, Note, NoteCreate, Recurring, RecurringCreate,
+    TagCreate, Task, TaskCreate, TaskUpdate,
+)
 
 router = APIRouter(prefix="/api/v1")
 
@@ -23,16 +26,22 @@ def list_tasks(
     due_before: str | None = None,
     workspace: str | None = None,
     sort: str = "smart",
+    claude: str | None = None,
 ):
     if status not in (None, "open", "done"):
         raise HTTPException(status_code=422, detail="status must be 'open' or 'done'")
+    if claude is not None and claude not in ("any", *db.CLAUDE_STATES):
+        raise HTTPException(
+            status_code=422,
+            detail=f"claude must be one of: any, {', '.join(db.CLAUDE_STATES)}",
+        )
     if workspace is not None and workspace not in db.WORKSPACES:
         raise HTTPException(
             status_code=422, detail=f"workspace must be one of: {', '.join(db.WORKSPACES)}"
         )
     return db.list_tasks(
         get_conn(request), status=status, tag=tag, search=search,
-        due_before=due_before, workspace=workspace, sort=sort,
+        due_before=due_before, workspace=workspace, sort=sort, claude=claude,
     )
 
 
@@ -195,3 +204,140 @@ def delete_recurring(request: Request, rule_id: int):
 def run_recurring_now(request: Request):
     """Materialise any due recurring tasks immediately (the scheduler also does this hourly)."""
     return db.spawn_due_tasks(get_conn(request))
+
+
+# ---------- mail import ----------
+
+
+def _mail_state(request: Request) -> tuple[mail.MailConfig, dict]:
+    state = request.app.state
+    config = getattr(state, "mail_config", None) or mail.MailConfig()
+    if getattr(state, "mail_status", None) is None:
+        state.mail_status = mail.status_for(config)
+    return config, state.mail_status
+
+
+@router.get("/mail", response_model=MailStatus)
+def mail_status(request: Request):
+    """Mail import settings (password left out), last check, and recent imports."""
+    _, status = _mail_state(request)
+    return {**status, "recent": db.list_mail_imports(get_conn(request))}
+
+
+@router.post("/mail/check", response_model=list[Task])
+def mail_check(request: Request):
+    """Check the mail folder now instead of waiting for the next poll."""
+    config, status = _mail_state(request)
+    if not config.enabled:
+        raise HTTPException(
+            status_code=409, detail="Mail import is turned off in the add-on options"
+        )
+    if config.missing():
+        raise HTTPException(
+            status_code=409,
+            detail=f"Mail import needs these add-on options: {', '.join(config.missing())}",
+        )
+    try:
+        return mail.run_check(
+            get_conn(request), config, status,
+            client_factory=getattr(request.app.state, "mail_client_factory", None),
+        )
+    except mail.MailError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+# ---------- handing tasks to Claude ----------
+
+
+def _task_exists(request: Request, task_id: int) -> None:
+    if db.get_task(get_conn(request), task_id) is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+
+@router.get("/tasks/{task_id}/followups", response_model=list[Task])
+def list_followups(request: Request, task_id: int):
+    """Tasks Claude added while working on this one."""
+    _task_exists(request, task_id)
+    return db.list_followups(get_conn(request), task_id)
+
+
+@router.get("/tasks/{task_id}/notes", response_model=list[Note])
+def list_notes(request: Request, task_id: int):
+    _task_exists(request, task_id)
+    return db.list_notes(get_conn(request), task_id)
+
+
+@router.post("/tasks/{task_id}/notes", response_model=Note, status_code=201)
+def add_note(request: Request, task_id: int, payload: NoteCreate):
+    _task_exists(request, task_id)
+    try:
+        return db.add_note(get_conn(request), task_id, payload.author, payload.body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.post("/tasks/{task_id}/claude", response_model=Task)
+def give_to_claude(request: Request, task_id: int, payload: ClaudeHandOver | None = None):
+    """Hand a task to Claude, optionally with instructions (also how you reply to it)."""
+    try:
+        task = db.give_to_claude(
+            get_conn(request), task_id, payload.instructions if payload else ""
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    return task
+
+
+@router.delete("/tasks/{task_id}/claude", response_model=Task)
+def take_back_from_claude(request: Request, task_id: int):
+    task = db.take_back_from_claude(get_conn(request), task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    return task
+
+
+def _check_workspace(workspace: str | None) -> None:
+    if workspace is not None and workspace not in db.WORKSPACES:
+        raise HTTPException(
+            status_code=422, detail=f"workspace must be one of: {', '.join(db.WORKSPACES)}"
+        )
+
+
+@router.get("/claude/queue", response_model=list[Task])
+def claude_queue(request: Request, workspace: str | None = None):
+    """Tasks waiting for a Claude worker, oldest first; a worker passes its workspace."""
+    _check_workspace(workspace)
+    return db.claude_queue(get_conn(request), workspace=workspace)
+
+
+@router.post("/tasks/{task_id}/claude/claim", response_model=Task)
+def claim_for_claude(request: Request, task_id: int, workspace: str | None = None):
+    """A worker takes a queued task. 409 when it is no longer waiting, or when it
+    belongs to another workspace than the worker's."""
+    _check_workspace(workspace)
+    task = db.get_task(get_conn(request), task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    if workspace and task["workspace"] != workspace:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task {task_id} is in {task['workspace']}, this worker handles {workspace}",
+        )
+    task = db.claim_for_claude(get_conn(request), task_id, workspace=workspace)
+    if task is None:
+        raise HTTPException(status_code=409, detail=f"Task {task_id} is not waiting for Claude")
+    return task
+
+
+@router.post("/tasks/{task_id}/claude/finish", response_model=Task)
+def finish_for_claude(request: Request, task_id: int, payload: ClaudeFinish):
+    """Claude hands the task back with its answer; it then waits for your review."""
+    try:
+        task = db.finish_for_claude(get_conn(request), task_id, payload.result, payload.state)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    return task

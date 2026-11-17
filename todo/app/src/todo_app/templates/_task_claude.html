@@ -1,0 +1,75 @@
+{% set root = request.headers.get('x-ingress-path', '') %}
+{% set state = task.claude_state %}
+<li class="task task-editing task-claude">
+  <div class="claude-head">
+    <span class="task-title">{{ task.title }}</span>
+    {% if state %}<span class="badge badge-claude badge-claude-{{ state }}">{{ claude_labels[state] }}</span>{% endif %}
+  </div>
+  {% if notes %}
+  <ol class="thread">
+    {% for note in notes %}
+    <li class="note note-{{ note.author }}">
+      <div class="note-who">{{ 'Claude' if note.author == 'claude' else 'You' }}
+        <time datetime="{{ note.created_at }}">{{ note.created_at[:16] | replace('T', ' ') }}</time></div>
+      {% if note.author == 'claude' %}
+      <div class="note-body note-md">{{ note.body | markdown }}</div>
+      {% else %}
+      <div class="note-body">{{ note.body }}</div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% elif not state %}
+  <p class="hint">Claude reads the title and description. Add instructions if it needs more to go on.</p>
+  {% endif %}
+  {% if followups %}
+  <div class="followups">
+    <div class="note-who">Claude added {{ followups | length }} task{{ 's' if followups | length != 1 }}</div>
+    <ul>
+      {% for f in followups %}
+      <li class="{{ 'followup-done' if f.status == 'done' }}">{{ f.title }}{% if f.due_date %} <span class="badge">{{ f.due_date }}</span>{% endif %}{% if f.planned_for %} <span class="badge">My Day</span>{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if task.status == 'done' %}
+  <p class="hint">This task is done. Reopen it to hand it to Claude again.</p>
+  <div class="edit-actions">
+    <button class="btn btn-ghost" hx-get="{{ root }}/tasks/table" hx-include="#filters" hx-target="#task-table">Close</button>
+  </div>
+  {% elif state == 'working' %}
+  <p class="hint">Claude is working on this right now. Its answer will appear here.</p>
+  <div class="edit-actions">
+    <button class="btn btn-ghost" hx-post="{{ root }}/tasks/{{ task.id }}/claude/back"
+            hx-include="#filters" hx-target="#task-table"
+            hx-confirm="Take this task back? Claude's answer will be discarded.">Take back</button>
+    <button class="btn btn-ghost" hx-get="{{ root }}/tasks/table" hx-include="#filters" hx-target="#task-table">Close</button>
+  </div>
+  {% else %}
+  <textarea name="instructions" rows="3" aria-label="Instructions for Claude"
+            placeholder="{{ 'Reply to Claude, e.g. what to change' if state in ('review', 'failed') else 'What should Claude do? (optional)' }}"></textarea>
+  <div class="edit-actions">
+    {% if state == 'review' %}
+    <button class="btn btn-primary" hx-post="{{ root }}/tasks/{{ task.id }}/claude/accept"
+            hx-include="#filters" hx-target="#task-table">Accept &amp; mark done</button>
+    <button class="btn btn-ghost" hx-post="{{ root }}/tasks/{{ task.id }}/claude/give"
+            hx-include="closest li, #filters" hx-target="#task-table">Send reply</button>
+    {% elif state == 'failed' %}
+    <button class="btn btn-primary" hx-post="{{ root }}/tasks/{{ task.id }}/claude/give"
+            hx-include="closest li, #filters" hx-target="#task-table">Try again</button>
+    {% elif state == 'queued' %}
+    <button class="btn btn-primary" hx-post="{{ root }}/tasks/{{ task.id }}/claude/give"
+            hx-include="closest li, #filters" hx-target="#task-table">Add to instructions</button>
+    {% else %}
+    <button class="btn btn-primary" hx-post="{{ root }}/tasks/{{ task.id }}/claude/give"
+            hx-include="closest li, #filters" hx-target="#task-table">Give to Claude</button>
+    {% endif %}
+    {% if state %}
+    <button class="btn btn-ghost" hx-post="{{ root }}/tasks/{{ task.id }}/claude/back"
+            hx-include="#filters" hx-target="#task-table">Take back</button>
+    {% endif %}
+    <button class="btn btn-ghost" hx-get="{{ root }}/tasks/table" hx-include="#filters" hx-target="#task-table">Close</button>
+  </div>
+  {% endif %}
+</li>

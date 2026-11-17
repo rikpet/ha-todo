@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__, db
+from . import __version__, db, mail
 from .api import router as api_router
 from .web import router as web_router
 
@@ -37,17 +37,57 @@ async def _recurring_scheduler(app: FastAPI) -> None:
         await asyncio.sleep(SCHEDULER_INTERVAL_SECONDS)
 
 
+async def _mail_poller(app: FastAPI) -> None:
+    """Check the mail folder at startup, then every `poll_minutes`."""
+    config: mail.MailConfig = app.state.mail_config
+    log.info("Mail import on: %s on %s, folder '%s', every %s min",
+             config.username, config.host, config.folder, config.poll_minutes)
+    while True:
+        try:
+            await asyncio.to_thread(mail.run_check, app.state.db, config, app.state.mail_status)
+        except mail.MailError as exc:
+            log.warning("Mail check failed: %s", exc)
+        except Exception:  # never let one bad pass kill the loop
+            log.exception("Mail check failed")
+        await asyncio.sleep(config.poll_minutes * 60)
+
+
+def _use_uvicorn_logging() -> None:
+    """Send our log lines through uvicorn's handler, at the add-on's log level.
+
+    uvicorn only configures its own loggers; without this our INFO lines are
+    dropped and warnings reach the add-on log unformatted.
+    """
+    uvicorn_log = logging.getLogger("uvicorn")
+    if log.handlers or not uvicorn_log.handlers:
+        return
+    for handler in uvicorn_log.handlers:
+        log.addHandler(handler)
+    log.setLevel(logging.getLogger("uvicorn.error").getEffectiveLevel())
+    log.propagate = False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _use_uvicorn_logging()
     app.state.db = db.connect()
-    scheduler = asyncio.create_task(_recurring_scheduler(app))
-    app.state.scheduler = scheduler
+    app.state.mail_config = mail.load_config()
+    app.state.mail_status = mail.status_for(app.state.mail_config)
+    background = [asyncio.create_task(_recurring_scheduler(app))]
+    app.state.scheduler = background[0]
+    if app.state.mail_config.active:
+        background.append(asyncio.create_task(_mail_poller(app)))
+    elif app.state.mail_config.enabled:
+        log.warning("Mail import is on but these options are empty: %s",
+                    ", ".join(app.state.mail_config.missing()))
     yield
-    scheduler.cancel()
-    try:
-        await scheduler
-    except asyncio.CancelledError:
-        pass
+    for task in background:
+        task.cancel()
+    for task in background:
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
     app.state.db.close()
 
 

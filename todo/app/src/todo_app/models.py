@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 Priority = Literal["low", "normal", "high"]
 Status = Literal["open", "done"]
 Workspace = Literal["private", "work"]
+ClaudeState = Literal["queued", "working", "review", "failed"]
 
 
 def _validate_iso_date(value: str | None) -> str | None:
@@ -27,6 +28,8 @@ class TaskCreate(BaseModel):
     tags: list[str] = []
     workspace: Workspace = "private"
     planned_for: str | None = None
+    created_by: Literal["me", "claude"] = "me"
+    origin_task_id: int | None = None
 
     _check_due = field_validator("due_date")(_validate_iso_date)
     _check_planned = field_validator("planned_for")(_validate_iso_date)
@@ -59,6 +62,10 @@ class Task(BaseModel):
     workspace: Workspace
     planned_for: str | None = None
     recurring_id: int | None = None
+    claude_state: ClaudeState | None = None
+    claude_claimed_at: str | None = None
+    created_by: Literal["me", "claude"] = "me"
+    origin_task_id: int | None = None
     created_at: str
     updated_at: str
     completed_at: str | None
@@ -104,3 +111,49 @@ class Recurring(BaseModel):
     last_spawned_on: str | None
     created_at: str
     updated_at: str
+
+
+class MailImport(BaseModel):
+    message_id: str
+    task_id: int | None
+    sender: str
+    subject: str
+    outcome: Literal["created", "rejected"]
+    imported_at: str
+
+
+class MailStatus(BaseModel):
+    enabled: bool
+    active: bool
+    missing: list[str]
+    host: str
+    username: str
+    folder: str
+    poll_minutes: int
+    allowed_senders: list[str]
+    default_workspace: Workspace
+    last_check: str | None
+    last_error: str | None
+    recent: list[MailImport]
+
+
+class Note(BaseModel):
+    id: int
+    task_id: int
+    author: Literal["me", "claude"]
+    body: str
+    created_at: str
+
+
+class NoteCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=100_000)
+    author: Literal["me", "claude"] = "me"
+
+
+class ClaudeHandOver(BaseModel):
+    instructions: str = Field(default="", max_length=20_000)
+
+
+class ClaudeFinish(BaseModel):
+    result: str = Field(min_length=1, max_length=200_000)
+    state: Literal["review", "failed"] = "review"

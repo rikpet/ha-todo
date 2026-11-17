@@ -187,6 +187,8 @@ def _task_table(tasks: list[dict], title: str = "") -> Table:
             label = f"[red]{label}[/red]"          # late: shown in red
         if t.get("planned_for") and not done:
             label = f"[yellow]{STAR}[/yellow] {label}"
+        if t.get("created_by") == "claude":
+            label = f"{label} [magenta](from Claude)[/magenta]"
         table.add_row(
             str(t["id"]),
             DONE_MARK if done else "",
@@ -827,6 +829,247 @@ def recur_run():
         console.print("[dim]Nothing due.[/dim]")
     for task in created:
         console.print(f"[green]{CHECK}[/green] Created [cyan]#{task['id']}[/cyan] {task['title']}")
+
+
+# ---------- mail import ----------
+
+mail_app = typer.Typer(help="Tasks created from mail.", invoke_without_command=True)
+app.add_typer(mail_app, name="mail")
+
+
+def _mail_request(method: str, path: str) -> httpx.Response:
+    """Like request(), but shows the server's explanation for config/mailbox problems."""
+    try:
+        with client() as c:
+            # an IMAP round trip can take longer than the usual 10 s
+            response = c.request(method, path, timeout=60)
+    except (httpx.RequestError, httpx.InvalidURL) as exc:
+        _unreachable(exc)
+    if response.status_code in (409, 502):
+        _fail(response.json().get("detail", response.text))
+    if response.is_error:
+        _fail(f"Server error {response.status_code}: {response.text}")
+    return response
+
+
+@mail_app.callback()
+def mail_default(ctx: typer.Context):
+    """Show mail import settings, the last check and recent imports."""
+    if ctx.invoked_subcommand is not None:
+        return
+    status = _mail_request("GET", "/mail").json()
+    if not status["enabled"]:
+        console.print(
+            "Mail import is [bold]off[/bold]. Turn it on in Home Assistant: "
+            "Settings > Add-ons > Todo > Configuration."
+        )
+        return
+    if status["missing"]:
+        _fail(f"Mail import is on but these add-on options are empty: "
+              f"{', '.join(status['missing'])}")
+    console.print(
+        f"Mail import is [bold]on[/bold]: {status['username']} on {status['host']}, "
+        f"folder [cyan]{status['folder']}[/cyan], every {status['poll_minutes']} min"
+    )
+    console.print(f"  Allowed senders: {', '.join(status['allowed_senders']) or 'anyone'}")
+    console.print(f"  Default workspace: {status['default_workspace']}")
+    if status["last_error"]:
+        console.print(f"  [red]{CROSS} Last check failed:[/red] {status['last_error']}")
+    elif status["last_check"]:
+        console.print(f"  [green]{CHECK}[/green] Last check: {status['last_check']}")
+    if not status["recent"]:
+        console.print("[dim]No mail imported yet.[/dim]")
+        return
+    table = Table(header_style="bold")
+    table.add_column("When")
+    table.add_column("Task", justify="right", style="cyan")
+    table.add_column("From")
+    table.add_column("Subject")
+    for entry in status["recent"]:
+        task = f"#{entry['task_id']}" if entry["task_id"] else "[dim]ignored[/dim]"
+        table.add_row(entry["imported_at"][:16].replace("T", " "), task,
+                      entry["sender"], entry["subject"])
+    console.print(table)
+
+
+@mail_app.command("check")
+def mail_check():
+    """Check the mail folder now instead of waiting for the next poll."""
+    created = _mail_request("POST", "/mail/check").json()
+    if not created:
+        console.print("[dim]No new mail.[/dim]")
+    for task in created:
+        console.print(f"[green]{CHECK}[/green] Created [cyan]#{task['id']}[/cyan] {task['title']}")
+
+
+# ---------- Claude ----------
+
+
+@app.command()
+def mcp(
+    workspace: Optional[str] = typer.Option(
+        None, "--workspace", "-w", envvar="TODO_WORKSPACE",
+        help="Only give Claude access to this workspace (private or work)"),
+):
+    """Run the MCP server Claude uses to read and answer tasks (stdio)."""
+    from . import mcp_server
+
+    url = load_config().get("url")
+    if not url:
+        _fail("No server configured. Run [bold]todo config[/bold] first.")
+    if workspace is not None and workspace not in WORKSPACES:
+        _fail(f"Workspace must be one of: {', '.join(WORKSPACES)}")
+    # set by the Claude worker: the task Claude was handed, for linking follow-ups
+    current = os.environ.get("TODO_TASK_ID", "")
+    mcp_server.main(normalize_url(url), workspace, int(current) if current.isdigit() else None)
+
+
+claude_app = typer.Typer(help="Hand tasks to Claude, and run the Claude worker.",
+                         invoke_without_command=True)
+app.add_typer(claude_app, name="claude")
+
+CLAUDE_LABELS = {"queued": "queued", "working": "working", "review": "ready for review",
+                 "failed": "failed"}
+CLAUDE_STYLES = {"queued": "yellow", "working": "cyan", "review": "green", "failed": "red"}
+
+
+@claude_app.callback()
+def claude_default(ctx: typer.Context):
+    """List tasks handed to Claude when no subcommand is given."""
+    if ctx.invoked_subcommand is not None:
+        return
+    tasks = request("GET", "/tasks", params={"claude": "any"}).json()
+    if not tasks:
+        console.print('[dim]Nothing handed to Claude. Try: todo claude give 12 "what to do"[/dim]')
+        return
+    table = Table(header_style="bold")
+    table.add_column("ID", justify="right", style="cyan")
+    table.add_column("Claude")
+    table.add_column("Title")
+    for t in tasks:
+        state = t["claude_state"]
+        table.add_row(str(t["id"]), f"[{CLAUDE_STYLES[state]}]{CLAUDE_LABELS[state]}[/]",
+                      t["title"])
+    console.print(table)
+
+
+@claude_app.command("give")
+def claude_give(
+    task_id: int = typer.Argument(..., metavar="ID"),
+    instructions: Optional[list[str]] = typer.Argument(None, metavar="[INSTRUCTIONS...]"),
+):
+    """Hand a task to Claude, optionally saying what to do. Also how you reply to Claude."""
+    text = " ".join(instructions or [])
+    with client() as c:
+        try:
+            response = c.post(f"/tasks/{task_id}/claude", json={"instructions": text})
+        except (httpx.RequestError, httpx.InvalidURL) as exc:
+            _unreachable(exc)
+    if response.status_code == 404:
+        _fail("Task not found.")
+    if response.status_code == 409:
+        _fail(response.json()["detail"])
+    if response.is_error:
+        _fail(f"Server error {response.status_code}: {response.text}")
+    task = response.json()
+    console.print(f"[green]{CHECK}[/green] [cyan]#{task['id']}[/cyan] {task['title']} "
+                  f"handed to Claude [dim](queued)[/dim]")
+
+
+@claude_app.command("show")
+def claude_show(task_id: int = typer.Argument(..., metavar="ID")):
+    """Show a task with its conversation with Claude."""
+    task = request("GET", f"/tasks/{task_id}").json()
+    notes = request("GET", f"/tasks/{task_id}/notes").json()
+    state = task.get("claude_state")
+    label = (f"[{CLAUDE_STYLES[state]}]{CLAUDE_LABELS[state]}[/]" if state
+             else "[dim]not handed to Claude[/dim]")
+    console.print(f"[cyan]#{task['id']}[/cyan] [bold]{task['title']}[/bold]  {label}")
+    if task["description"]:
+        console.print(f"[dim]{task['description']}[/dim]")
+    for note in notes:
+        who = "[bold magenta]Claude[/]" if note["author"] == "claude" else "[bold]You[/]"
+        console.print(f"\n{who} [dim]{note['created_at'][:16].replace('T', ' ')}[/dim]")
+        console.print(note["body"], markup=False, highlight=False)
+    if not notes:
+        console.print("[dim]No messages yet.[/dim]")
+    followups = request("GET", f"/tasks/{task_id}/followups").json()
+    if followups:
+        console.print(f"\n[bold magenta]Claude added {len(followups)} task(s):[/]")
+        for f in followups:
+            mark = DONE_MARK if f["status"] == "done" else "-"
+            console.print(f"  {mark} [cyan]#{f['id']}[/cyan] {f['title']}", highlight=False)
+
+
+@claude_app.command("back")
+def claude_back(task_id: int = typer.Argument(..., metavar="ID")):
+    """Take a task back from Claude (the conversation is kept)."""
+    task = request("DELETE", f"/tasks/{task_id}/claude").json()
+    console.print(f"[green]{CHECK}[/green] [cyan]#{task['id']}[/cyan] {task['title']} "
+                  "is yours again")
+
+
+@claude_app.command("work")
+def claude_work(
+    once: bool = typer.Option(False, "--once", help="Handle what is queued now, then exit"),
+    interval: int = typer.Option(60, "--interval", help="Seconds between queue checks"),
+    timeout: int = typer.Option(30, "--timeout", help="Minutes Claude may spend on one task"),
+    workdir: Optional[Path] = typer.Option(
+        None, "--workdir", help="Folder for Claude's files (default: ~/todo-claude)"),
+    model: Optional[str] = typer.Option(None, "--model", help="Claude model, e.g. sonnet"),
+    no_commands: bool = typer.Option(
+        False, "--no-commands", help="Do not let Claude run shell commands"),
+    claude_bin: str = typer.Option("claude", "--claude", help="Path to Claude Code"),
+    workspace: Optional[str] = typer.Option(
+        None, "--workspace", "-w",
+        help="Only take tasks from this workspace (private or work), e.g. to keep work "
+             "tasks on your work Claude account"),
+):
+    """Run the Claude worker: pick up tasks handed to Claude and work on them.
+
+    Uses Claude Code with your Claude subscription login - never an API key.
+    """
+    if workspace is not None and workspace not in WORKSPACES:
+        _fail(f"Workspace must be one of: {', '.join(WORKSPACES)}")
+    import time
+
+    from . import worker as worker_mod
+
+    url = load_config().get("url")
+    if not url:
+        _fail("No server configured. Run [bold]todo config[/bold] first.")
+    config = worker_mod.WorkerConfig(
+        server_url=normalize_url(url), claude=claude_bin, allow_commands=not no_commands,
+        model=model, timeout_minutes=max(1, timeout), workspace=workspace,
+        **({"workdir": workdir} if workdir else {}),
+    )
+    with client() as api:
+        w = worker_mod.Worker(config, api, log=lambda text: console.print(text, markup=False,
+                                                                          highlight=False))
+        try:
+            w.prepare()
+        except worker_mod.WorkerError as exc:
+            _fail(str(exc))
+        console.print(f"Watching {config.server_url} for tasks handed to Claude"
+                      f"{'' if once else f' (every {interval} s, Ctrl+C to stop)'}.")
+        try:
+            while True:
+                try:
+                    handled = w.run_once()
+                except httpx.HTTPError as exc:
+                    if once:
+                        _unreachable(exc)
+                    console.print(f"[yellow]Todo server unreachable ({type(exc).__name__}); "
+                                  "retrying.[/yellow]")
+                    handled = 0
+                if once:
+                    if not handled:
+                        console.print("[dim]Nothing queued for Claude.[/dim]")
+                    return
+                if not handled:
+                    time.sleep(max(5, interval))
+        except KeyboardInterrupt:
+            console.print("Stopped.")
 
 
 if __name__ == "__main__":

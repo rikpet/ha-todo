@@ -8,8 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
-
-from . import db
+from . import db, markdown
 
 from . import __version__
 
@@ -17,6 +16,17 @@ router = APIRouter()
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 # cache-buster for static assets: browsers cache CSS/JS across add-on updates
 templates.env.globals["app_version"] = __version__
+
+CLAUDE_LABELS = {
+    "queued": "Claude: queued",
+    "working": "Claude is working",
+    "review": "Claude answered",
+    "failed": "Claude failed",
+}
+templates.env.globals["claude_labels"] = CLAUDE_LABELS
+
+# Claude answers in Markdown; render a safe subset (everything is escaped first)
+templates.env.filters["markdown"] = markdown.render
 
 
 def _conn(request: Request):
@@ -85,6 +95,12 @@ def _render_table(
         "is_late": db.is_late,
         "is_carried_over": db.is_carried_over,
         "in_my_day": db.in_my_day,
+        # refresh the list by itself while Claude has something in hand
+        "claude_active": any(t.get("claude_state") in ("queued", "working") for t in tasks),
+        # titles of the tasks Claude was working on when it added a task
+        "origin_titles": db.task_titles(
+            conn, {t["origin_task_id"] for t in tasks if t.get("origin_task_id")}
+        ),
     }
     return templates.TemplateResponse(request, template, context)
 
@@ -303,3 +319,61 @@ def recurring_toggle(request: Request, rule_id: int):
 def recurring_delete(request: Request, rule_id: int):
     db.delete_recurring(_conn(request), rule_id)
     return Response(status_code=204, headers={"HX-Refresh": "true"})
+
+
+# ---------- handing tasks to Claude ----------
+
+@router.get("/tasks/{task_id}/claude", response_class=HTMLResponse)
+def claude_panel(request: Request, task_id: int):
+    task = _task_or_404(request, task_id)
+    return templates.TemplateResponse(
+        request, "_task_claude.html",
+        {"task": task, "notes": db.list_notes(_conn(request), task_id),
+         "followups": db.list_followups(_conn(request), task_id)},
+    )
+
+
+@router.post("/tasks/{task_id}/claude/give", response_class=HTMLResponse)
+def claude_give(
+    request: Request,
+    task_id: int,
+    instructions: str = Form(""),
+    workspace: str = Form("private"),
+    status: str = Form("open"),
+    tag: str = Form(""),
+    search: str = Form(""),
+):
+    _task_or_404(request, task_id)
+    try:
+        db.give_to_claude(_conn(request), task_id, instructions)
+    except ValueError:
+        pass  # done, or Claude is mid-run: the re-rendered row shows which
+    return _render_table(request, workspace, status, tag, search, "_task_table.html")
+
+
+@router.post("/tasks/{task_id}/claude/back", response_class=HTMLResponse)
+def claude_back(
+    request: Request,
+    task_id: int,
+    workspace: str = Form("private"),
+    status: str = Form("open"),
+    tag: str = Form(""),
+    search: str = Form(""),
+):
+    db.take_back_from_claude(_conn(request), task_id)
+    return _render_table(request, workspace, status, tag, search, "_task_table.html")
+
+
+@router.post("/tasks/{task_id}/claude/accept", response_class=HTMLResponse)
+def claude_accept(
+    request: Request,
+    task_id: int,
+    workspace: str = Form("private"),
+    status: str = Form("open"),
+    tag: str = Form(""),
+    search: str = Form(""),
+):
+    """Happy with Claude's answer: the task is done."""
+    _task_or_404(request, task_id)
+    db.update_task(_conn(request), task_id, status="done")
+    return _render_table(request, workspace, status, tag, search, "_task_table.html")

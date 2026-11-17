@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.9.0
+
+- **Give a task to Claude.** The new ✦ button on a task hands it to Claude, with an optional note on what you want. Claude works on it and answers right on the task; the badge shows *queued*, *working*, *answered* or *failed*, and the list refreshes by itself while Claude is busy.
+- Open the conversation to read the answer (tables, lists and links are formatted), **reply** to ask for changes, **accept** to mark the task done, or **take it back**. Claude never closes a task on its own.
+- Claude runs on **your own computer or a Raspberry Pi** through Claude Code, logged in with **your Claude subscription** — no API key, no separate bill. Start it with `todo claude work`; see *Handing tasks to Claude* in the documentation for the one-time setup.
+- **Claude can add tasks**: follow-up steps it finds while working, or tasks you ask it to add in a chat. They carry a *✦ Claude* badge naming the task they came from, can go straight into My Day, and Claude's answer lists what it added.
+- Claude gets its own folder per task for files it makes, can search the web, and can suggest follow-up tasks. Use `--no-commands` if it should not run commands.
+- From the terminal: `todo claude` lists what Claude has, `todo claude give 12 "what to do"` hands a task over (and replies), `todo claude show 12` shows the conversation.
+- Mail with `@claude` in the subject goes straight to Claude.
+- **Private and work on different Claude accounts**: run `todo claude work --workspace private` on the Pi with your own account and `todo claude work --workspace work` on your work computer with the work account. Each Claude only sees and answers tasks in its own workspace.
+- `todo mcp` connects Claude Desktop or Claude Code to your list, so you can also say "work on my todos" in a normal chat.
+
+## 0.8.0
+
+- **Tasks from mail.** Point the add-on at a mail folder (IMAP) and every unread message there becomes a task: the subject is the title, the body the description. Set it up under *Configuration* in the add-on: server, username, app password, folder, and which senders may create tasks. See the add-on documentation for Gmail and iCloud settings.
+- **Shortcuts in the subject**: `#tag`, `!high` / `!low`, `@work` / `@private`, `@today` for My Day, and `due:2026-11-02` (or `due:today`, `due:tomorrow`). Sending to `you+work@...` files the task under Work. "Re:", "Fwd:", "VB:" and email signatures are left out.
+- A mail never turns into two tasks, even if it is marked unread again. Mail from senders not on your list is skipped and marked as read.
+- `todo mail` shows the setup, the last check and recent imports; `todo mail check` fetches right away.
+- The add-on log now shows what the app itself does — tasks created from mail or recurring rules, and why a mail check failed.
+
 ## 0.7.0
 
 - **New task order**: highest priority first, then newest to oldest. Due dates no longer affect the order (they are still shown, and overdue ones stay red). Completed tasks remain at the bottom.
